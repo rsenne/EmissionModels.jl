@@ -5,6 +5,7 @@ using DensityInterface
 using StatsAPI
 using SpecialFunctions: loggamma
 using Statistics: mean
+using HiddenMarkovModels
 
 import StatsAPI: fit!
 
