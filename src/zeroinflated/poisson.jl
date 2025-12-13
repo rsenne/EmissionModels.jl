@@ -49,17 +49,14 @@ function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Integer)
 
     if x == 0
         # P(X=0) = π + (1-π)exp(-λ)
-        # Use logsumexp trick for numerical stability
-        log_π = log(dist.π)
-        log_1minus_π_poisson_0 = log(1 - dist.π) - dist.λ
-
-        # log(exp(a) + exp(b)) = max(a,b) + log(exp(a-max) + exp(b-max))
-        m = max(log_π, log_1minus_π_poisson_0)
-        return m + log(exp(log_π - m) + exp(log_1minus_π_poisson_0 - m))
+        log_pi = log(dist.π)
+        log_1minus_pi_poisson_0 = log(1 - dist.π) - dist.λ
+        
+        # log(exp(a) + exp(b))
+        return logaddexp(log_pi, log_1minus_pi_poisson_0)
     else
-        # P(X=k) = (1-π) * Poisson(λ)(k)
         # log P(X=k) = log(1-π) + k*log(λ) - λ - log(k!)
-        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - loggamma(x + 1)
+        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - logfactorial(x)
     end
 end
 
@@ -78,25 +75,7 @@ function Random.rand(rng::Random.AbstractRNG, dist::PoissonZeroInflated)
         return 0
     else
         # Sample from Poisson(λ)
-        return _rand_poisson(rng, dist.λ)
-    end
-end
-
-# Knuth's algorithm for Poisson sampling
-function _rand_poisson(rng::Random.AbstractRNG, λ::Real)
-    if λ < 30
-        # Knuth's algorithm for small λ
-        L = exp(-λ)
-        k = 0
-        p = 1.0
-        while p > L
-            k += 1
-            p *= rand(rng)
-        end
-        return k - 1
-    else
-        # Use normal approximation for large λ
-        return max(0, round(Int, randn(rng) * sqrt(λ) + λ))
+        return rand(rng, Poisson(dist.λ))
     end
 end
 
@@ -117,7 +96,8 @@ Uses EM to estimate π and λ:
 - M-step: Update π and λ based on weighted responsibilities
 """
 function StatsAPI.fit!(
-    dist::PoissonZeroInflated, obs_seq::AbstractVector, weight_seq::AbstractVector
+    dist::PoissonZeroInflated, obs_seq::AbstractVector, weight_seq::AbstractVector;
+    max_iter = 100, tol = 1e-6
 )
     length(obs_seq) == length(weight_seq) ||
         throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
@@ -128,67 +108,68 @@ function StatsAPI.fit!(
         return dist
     end
 
-    # Separate zeros and non-zeros
+    epsilon = eps(typeof(dist.λ))
     zero_mask = obs_seq .== 0
-    n_zeros = sum(zero_mask)
-
-    if n_zeros == length(obs_seq)
-        # All zeros: set high π, arbitrary small λ
-        dist.π = 0.9
-        dist.λ = 0.1
+    if sum(zero_mask) == length(obs_seq)
+        dist.π = 1.0 - epsilon
+        dist.λ = epsilon
         return dist
     end
-
-    # EM algorithm for parameter estimation
-    max_iter = 100
-    tol = 1e-6
 
     for iter in 1:max_iter
         old_λ = dist.λ
         old_π = dist.π
 
-        # E-step: Compute responsibility that each zero is structural
-        # P(structural zero | X=0) = π / (π + (1-π)exp(-λ))
-        posterior_structural_zero = zeros(eltype(dist.λ), length(obs_seq))
+        # Initialize M-step accumulators
+        weighted_structural_zeros = zero(total_weight)
+        weighted_sum_x = zero(total_weight)
+        weight_non_structural = zero(total_weight)
+
+        prob_sampling_zero = exp(-dist.λ)
+
+        # Integrated E-step and M-step (avoids allocation)
         for i in eachindex(obs_seq)
-            if obs_seq[i] == 0
+            w = weight_seq[i]
+            x = obs_seq[i]
+            
+            if x == 0
+                # E-step: Compute P(structural | X=0)
                 prob_structural = dist.π
-                prob_sampling = (1 - dist.π) * exp(-dist.λ)
+                prob_sampling = (1 - dist.π) * prob_sampling_zero
                 total = prob_structural + prob_sampling
-                posterior_structural_zero[i] = prob_structural / total
-            else
-                posterior_structural_zero[i] = 0.0
+                
+                # Check for numerical stability issues (total ~= 0)
+                if total < epsilon
+                    p_structural_zero = 1.0 # Assume structural if all probs near zero
+                else
+                    p_structural_zero = prob_structural / total 
+                end
+                
+                # M-step update for π
+                weighted_structural_zeros += w * p_structural_zero
+                
+                # M-step update for λ denominator: (1 - P(structural | X=0)) * w
+                weight_non_structural += w * (1 - p_structural_zero)
+                
+            else # x > 0
+                # E-step: P(structural | X=x>0) = 0
+                
+                # M-step update for λ denominator and numerator
+                weight_non_structural += w
+                weighted_sum_x += w * x
             end
         end
 
-        # M-step: Update parameters
-        # Update π: weighted average of structural zero probabilities
-        weighted_structural_zeros = sum(
-            weight_seq[i] * posterior_structural_zero[i] for i in eachindex(obs_seq)
-        )
+        # M-step: Final parameter update
         dist.π = weighted_structural_zeros / total_weight
-
-        # Clamp π to valid range
-        dist.π = clamp(dist.π, 1e-10, 1 - 1e-10)
-
-        # Update λ: weighted mean of non-structural observations
-        # Only non-structural zeros and all positive counts contribute
-        weight_non_structural = sum(
-            weight_seq[i] * (1 - posterior_structural_zero[i]) for i in eachindex(obs_seq)
-        )
+        dist.π = clamp(dist.π, epsilon, 1 - epsilon)
 
         if weight_non_structural > 0
-            weighted_sum = sum(
-                weight_seq[i] * obs_seq[i] * (1 - posterior_structural_zero[i]) for
-                i in eachindex(obs_seq)
-            )
-            dist.λ = weighted_sum / weight_non_structural
+            dist.λ = weighted_sum_x / weight_non_structural
         else
-            dist.λ = 1.0  # Fallback if no non-structural observations
+            dist.λ = epsilon # Fallback if no non-structural observations
         end
-
-        # Ensure λ stays positive
-        dist.λ = max(dist.λ, 1e-10)
+        dist.λ = max(dist.λ, epsilon)
 
         # Check convergence
         if abs(dist.λ - old_λ) < tol && abs(dist.π - old_π) < tol

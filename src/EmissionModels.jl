@@ -1,12 +1,15 @@
 module EmissionModels
 
+using Distributions
 using DensityInterface
-using Random
-using SpecialFunctions: loggamma
-using StatsAPI
 using LinearAlgebra
+using LogExpFunctions: logaddexp, logsumexp
+using Optim
+using Random
+using SpecialFunctions: logfactorial
+using StatsAPI
+using StatsAPI: fit!
 
-import StatsAPI: fit! # being weird about fit!
 
 include("zeroinflated/poisson.jl")
 
