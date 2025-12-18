@@ -9,14 +9,12 @@ using StatsAPI
     @testset "Zero-inflated models" begin
         include("zeroinflated/test_poisson.jl")
     end
-    @testset "Formatting" begin
-        if VERSION >= v"1.10"
-            @test_broken JuliaFormatter.format(EmissionModels; verbose=false, overwrite=false)
-        end
+    @testset "Multivariate models" begin
+        include("multivariate/test_t.jl")
     end
     @testset "Code linting" begin
         if VERSION >= v"1.10"
-            JET.test_package(EmissionModels; target_defined_modules=true)
+            JET.test_package(EmissionModels; target_modules=(EmissionModels,))
         end
     end
     @testset "Code quality (Aqua.jl)" begin
