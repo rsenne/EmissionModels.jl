@@ -10,4 +10,3 @@ GLM subtypes should implement the HiddenMarkovModels.jl interface:
 - `StatsAPI.fit!(glm, obs_seq, weight_seq)` - Update parameters
 """
 abstract type AbstractGLM end
-

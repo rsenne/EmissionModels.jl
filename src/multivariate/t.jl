@@ -28,7 +28,7 @@ mutable struct MultivariateT{T<:Real}
     ν::T
 
     # Cached values for efficiency
-    Σ_chol::Cholesky{T, Matrix{T}}  # Cholesky decomposition of Σ
+    Σ_chol::Cholesky{T,Matrix{T}}  # Cholesky decomposition of Σ
     logdetΣ::T                       # log determinant of Σ
     dim::Int                         # Dimension
 
@@ -39,9 +39,8 @@ mutable struct MultivariateT{T<:Real}
         dim = length(μ)
         dim > 0 || throw(ArgumentError("μ must be non-empty"))
 
-        size(Σ) == (dim, dim) || throw(DimensionMismatch(
-            "Σ must be $(dim)×$(dim), got $(size(Σ))"
-        ))
+        size(Σ) == (dim, dim) ||
+            throw(DimensionMismatch("Σ must be $(dim)×$(dim), got $(size(Σ))"))
 
         # Check positive definiteness via Cholesky
         Σ_chol = try
@@ -61,7 +60,7 @@ MultivariateT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real} = Multivariat
 
 function MultivariateT(μ::Vector, Σ::Matrix, ν::Real)
     T = promote_type(eltype(μ), eltype(Σ), typeof(ν))
-    MultivariateT{T}(convert(Vector{T}, μ), convert(Matrix{T}, Σ), convert(T, ν))
+    return MultivariateT{T}(convert(Vector{T}, μ), convert(Matrix{T}, Σ), convert(T, ν))
 end
 
 """
@@ -104,13 +103,11 @@ mutable struct MultivariateTDiag{T<:Real}
         dim = length(μ)
         dim > 0 || throw(ArgumentError("μ must be non-empty"))
 
-        length(σ²) == dim || throw(DimensionMismatch(
-            "σ² must have length $(dim), got $(length(σ²))"
-        ))
+        length(σ²) == dim ||
+            throw(DimensionMismatch("σ² must have length $(dim), got $(length(σ²))"))
 
-        all(σ²_i > 0 for σ²_i in σ²) || throw(ArgumentError(
-            "All elements of σ² must be positive"
-        ))
+        all(σ²_i > 0 for σ²_i in σ²) ||
+            throw(ArgumentError("All elements of σ² must be positive"))
 
         logdetΣ = sum(log, σ²)
 
@@ -119,13 +116,16 @@ mutable struct MultivariateTDiag{T<:Real}
 end
 
 # Outer constructors for convenience
-MultivariateTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real} = MultivariateTDiag{T}(μ, σ², ν)
+function MultivariateTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
+    return MultivariateTDiag{T}(μ, σ², ν)
+end
 
 function MultivariateTDiag(μ::Vector, σ²::Vector, ν::Real)
     T = promote_type(eltype(μ), eltype(σ²), typeof(ν))
-    MultivariateTDiag{T}(convert(Vector{T}, μ), convert(Vector{T}, σ²), convert(T, ν))
+    return MultivariateTDiag{T}(
+        convert(Vector{T}, μ), convert(Vector{T}, σ²), convert(T, ν)
+    )
 end
-
 
 # DensityInterface implementation
 DensityInterface.DensityKind(::MultivariateT) = DensityInterface.HasDensity()
@@ -143,9 +143,8 @@ log p(x) = log Γ((ν+d)/2) - log Γ(ν/2) - (d/2)log(νπ) - (1/2)log|Σ|
 ```
 """
 function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
-    length(x) == dist.dim || throw(DimensionMismatch(
-        "x must have length $(dist.dim), got $(length(x))"
-    ))
+    length(x) == dist.dim ||
+        throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
     d = dist.dim
     ν = dist.ν
@@ -156,8 +155,8 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
     mahal² = sum(abs2, z)      # ||z||² = (x-μ)' Σ⁻¹ (x-μ)
 
     # Log density computation
-    log_norm = loggamma((ν + d) / 2) - loggamma(ν / 2) -
-               (d / 2) * log(ν * π) - dist.logdetΣ / 2
+    log_norm =
+        loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
 
     log_kernel = -((ν + d) / 2) * log1p(mahal² / ν)
 
@@ -170,9 +169,8 @@ end
 Compute the log probability density of the diagonal multivariate t-distribution at `x`.
 """
 function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVector)
-    length(x) == dist.dim || throw(DimensionMismatch(
-        "x must have length $(dist.dim), got $(length(x))"
-    ))
+    length(x) == dist.dim ||
+        throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
     d = dist.dim
     ν = dist.ν
@@ -182,8 +180,8 @@ function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVecto
     mahal² = sum(diff[i]^2 / dist.σ²[i] for i in 1:d)
 
     # Log density computation
-    log_norm = loggamma((ν + d) / 2) - loggamma(ν / 2) -
-               (d / 2) * log(ν * π) - dist.logdetΣ / 2
+    log_norm =
+        loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
 
     log_kernel = -((ν + d) / 2) * log1p(mahal² / ν)
 
@@ -191,7 +189,6 @@ function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVecto
 end
 
 # sampling
-
 
 """
     rand([rng], dist::MultivariateT)
@@ -262,22 +259,21 @@ function StatsAPI.fit!(
     dist::MultivariateT,
     obs_seq,
     weight_seq;
-    max_iter::Int = 100,
-    tol::Real = 1e-6,
-    fix_nu::Bool = false
+    max_iter::Int=100,
+    tol::Real=1e-6,
+    fix_nu::Bool=false,
 )
-    length(obs_seq) == length(weight_seq) || throw(DimensionMismatch(
-        "obs_seq and weight_seq must have the same length"
-    ))
+    length(obs_seq) == length(weight_seq) ||
+        throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
 
     isempty(obs_seq) && return dist
 
     # Check dimensions
     d = dist.dim
     for (i, obs) in enumerate(obs_seq)
-        length(obs) == d || throw(DimensionMismatch(
-            "Observation $i has length $(length(obs)), expected $d"
-        ))
+        length(obs) == d || throw(
+            DimensionMismatch("Observation $i has length $(length(obs)), expected $d")
+        )
     end
 
     # Filter out zero-weight observations
@@ -343,40 +339,61 @@ function StatsAPI.fit!(
             # -ψ(ν/2) + log(ν/2) + 1 + (1/n)Σw_i(log(u_i) - u_i) + ψ((ν+d)/2) - log((ν+d)/2) = 0
             # where u_i are the posterior weights
 
-            avg_log_u_minus_u = sum(weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n)
+            avg_log_u_minus_u = sum(
+                weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n
+            )
 
             # Optimize over log(ν) to ensure ν > 0
             # Let x = log(ν), so ν = exp(x)
             function objective(x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 return f^2  # Minimize squared residual
             end
 
             function gradient!(G, x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 # df/dν
-                df_dν = -0.5 * trigamma(ν_val / 2) + 1 / ν_val +
-                        0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
+                df_dν =
+                    -0.5 * trigamma(ν_val / 2) +
+                    1 / ν_val +
+                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
                 # d(f²)/dx = d(f²)/dν * dν/dx = 2f * df/dν * ν (since dν/dx = ν)
-                G[1] = 2 * f * df_dν * ν_val
+                return G[1] = 2 * f * df_dν * ν_val
             end
 
             function hessian!(H, x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 # df/dν
-                df_dν = -0.5 * trigamma(ν_val / 2) + 1 / ν_val +
-                        0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
+                df_dν =
+                    -0.5 * trigamma(ν_val / 2) +
+                    1 / ν_val +
+                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
                 # d²f/dν²
-                d2f_dν2 = -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
-                          0.25 * polygamma(2, (ν_val + d) / 2) + 1 / (ν_val + d)^2
+                d2f_dν2 =
+                    -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
+                    0.25 * polygamma(2, (ν_val + d) / 2) +
+                    1 / (ν_val + d)^2
                 # d²(f²)/dx² using chain rule: d²(f²)/dx² = [2(df/dν)² + 2f*d²f/dν²]*ν² + 2f*df/dν*ν
-                H[1, 1] = (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
+                return H[1, 1] =
+                    (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
             end
 
             # Use Newton's method with analytical derivatives
@@ -425,22 +442,21 @@ function StatsAPI.fit!(
     dist::MultivariateTDiag,
     obs_seq,
     weight_seq;
-    max_iter::Int = 100,
-    tol::Real = 1e-6,
-    fix_nu::Bool = false
+    max_iter::Int=100,
+    tol::Real=1e-6,
+    fix_nu::Bool=false,
 )
-    length(obs_seq) == length(weight_seq) || throw(DimensionMismatch(
-        "obs_seq and weight_seq must have the same length"
-    ))
+    length(obs_seq) == length(weight_seq) ||
+        throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
 
     isempty(obs_seq) && return dist
 
     # Check dimensions
     d = dist.dim
     for (i, obs) in enumerate(obs_seq)
-        length(obs) == d || throw(DimensionMismatch(
-            "Observation $i has length $(length(obs)), expected $d"
-        ))
+        length(obs) == d || throw(
+            DimensionMismatch("Observation $i has length $(length(obs)), expected $d")
+        )
     end
 
     # Filter out zero-weight observations
@@ -492,40 +508,61 @@ function StatsAPI.fit!(
 
         # Update ν (if not fixed)
         if !fix_nu
-            avg_log_u_minus_u = sum(weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n)
+            avg_log_u_minus_u = sum(
+                weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n
+            )
 
             # Optimize over log(ν) to ensure ν > 0
             # Let x = log(ν), so ν = exp(x)
             function objective(x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 return f^2  # Minimize squared residual
             end
 
             function gradient!(G, x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 # df/dν
-                df_dν = -0.5 * trigamma(ν_val / 2) + 1 / ν_val +
-                        0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
+                df_dν =
+                    -0.5 * trigamma(ν_val / 2) +
+                    1 / ν_val +
+                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
                 # d(f²)/dx = d(f²)/dν * dν/dx = 2f * df/dν * ν (since dν/dx = ν)
-                G[1] = 2 * f * df_dν * ν_val
+                return G[1] = 2 * f * df_dν * ν_val
             end
 
             function hessian!(H, x::Vector)
                 ν_val = exp(x[1])
-                f = -digamma(ν_val / 2) + log(ν_val / 2) + 1 + avg_log_u_minus_u +
+                f =
+                    -digamma(ν_val / 2) +
+                    log(ν_val / 2) +
+                    1 +
+                    avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
                 # df/dν
-                df_dν = -0.5 * trigamma(ν_val / 2) + 1 / ν_val +
-                        0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
+                df_dν =
+                    -0.5 * trigamma(ν_val / 2) +
+                    1 / ν_val +
+                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
                 # d²f/dν²
-                d2f_dν2 = -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
-                          0.25 * polygamma(2, (ν_val + d) / 2) + 1 / (ν_val + d)^2
+                d2f_dν2 =
+                    -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
+                    0.25 * polygamma(2, (ν_val + d) / 2) +
+                    1 / (ν_val + d)^2
                 # d²(f²)/dx² using chain rule: d²(f²)/dx² = [2(df/dν)² + 2f*d²f/dν²]*ν² + 2f*df/dν*ν
-                H[1, 1] = (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
+                return H[1, 1] =
+                    (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
             end
 
             # Use Newton's method with analytical derivatives

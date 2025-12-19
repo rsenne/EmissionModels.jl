@@ -18,7 +18,7 @@ function create_hmm()
     end
 
     # fill initial distribution
-    init = rand(Dirichlet(ones(3)))
+    return init = rand(Dirichlet(ones(3)))
 
     # Define Emission Models
 end

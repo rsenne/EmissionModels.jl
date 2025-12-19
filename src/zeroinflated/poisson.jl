@@ -51,7 +51,7 @@ function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Integer)
         # P(X=0) = π + (1-π)exp(-λ)
         log_pi = log(dist.π)
         log_1minus_pi_poisson_0 = log(1 - dist.π) - dist.λ
-        
+
         # log(exp(a) + exp(b))
         return logaddexp(log_pi, log_1minus_pi_poisson_0)
     else
@@ -96,8 +96,11 @@ Uses EM to estimate π and λ:
 - M-step: Update π and λ based on weighted responsibilities
 """
 function StatsAPI.fit!(
-    dist::PoissonZeroInflated, obs_seq::AbstractVector, weight_seq::AbstractVector;
-    max_iter = 100, tol = 1e-6
+    dist::PoissonZeroInflated,
+    obs_seq::AbstractVector,
+    weight_seq::AbstractVector;
+    max_iter=100,
+    tol=1e-6,
 )
     length(obs_seq) == length(weight_seq) ||
         throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
@@ -131,29 +134,29 @@ function StatsAPI.fit!(
         for i in eachindex(obs_seq)
             w = weight_seq[i]
             x = obs_seq[i]
-            
+
             if x == 0
                 # E-step: Compute P(structural | X=0)
                 prob_structural = dist.π
                 prob_sampling = (1 - dist.π) * prob_sampling_zero
                 total = prob_structural + prob_sampling
-                
+
                 # Check for numerical stability issues (total ~= 0)
                 if total < epsilon
                     p_structural_zero = 1.0 # Assume structural if all probs near zero
                 else
-                    p_structural_zero = prob_structural / total 
+                    p_structural_zero = prob_structural / total
                 end
-                
+
                 # M-step update for π
                 weighted_structural_zeros += w * p_structural_zero
-                
+
                 # M-step update for λ denominator: (1 - P(structural | X=0)) * w
                 weight_non_structural += w * (1 - p_structural_zero)
-                
+
             else # x > 0
                 # E-step: P(structural | X=x>0) = 0
-                
+
                 # M-step update for λ denominator and numerator
                 weight_non_structural += w
                 weighted_sum_x += w * x
@@ -179,4 +182,3 @@ function StatsAPI.fit!(
 
     return dist
 end
-
