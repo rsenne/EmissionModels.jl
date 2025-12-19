@@ -9,6 +9,8 @@ using HiddenMarkovModels
 
 import StatsAPI: fit!
 
+include("../hmm_utils.jl")
+
 @testset "PoissonZeroInflated" begin
     @testset "Constructor" begin
         # Valid construction
@@ -177,5 +179,54 @@ import StatsAPI: fit!
         # Compute log densities
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
+    end
+
+    @testset "HMM Integration" begin
+        rng = Random.MersenneTwister(777)
+
+        # Create HMM with PoissonZeroInflated emissions using create_hmm utility
+        hmm = create_hmm(PoissonZeroInflated; n_states=3, α=15.0, rng=rng)
+
+        # Verify HMM structure
+        @test length(hmm.init) == 3
+        @test size(hmm.trans) == (3, 3)
+        @test length(hmm.dists) == 3
+
+        # Verify all emissions are PoissonZeroInflated
+        @test all(dist -> dist isa PoissonZeroInflated, hmm.dists)
+
+        # Verify transition matrix is stochastic
+        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test sum(hmm.init) ≈ 1.0
+
+        # Generate observations from the HMM
+        state_seq, obs_seq = rand(rng, hmm, 100)
+        @test length(state_seq) == 100
+        @test length(obs_seq) == 100
+        @test all(obs -> obs >= 0, obs_seq)
+
+        # Verify we can compute forward algorithm
+        log_alpha, log_ll = forward(hmm, obs_seq)
+        @test size(log_alpha) == (3, 100)
+        @test all(isfinite, log_alpha)
+        @test all(isfinite, log_ll)
+
+        # Verify we can run Baum-Welch to fit the HMM
+        hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
+        @test length(lls) <= 5
+        @test all(isfinite, lls)
+
+        # Test with custom parameters
+        hmm_custom = create_hmm(
+            PoissonZeroInflated;
+            n_states=4,
+            α=5.0,
+            λ_range=(2.0, 8.0),
+            π_range=(0.2, 0.5),
+            rng=rng,
+        )
+        @test length(hmm_custom.init) == 4
+        @test all(2.0 <= dist.λ <= 8.0 for dist in hmm_custom.dists)
+        @test all(0.2 <= dist.π <= 0.5 for dist in hmm_custom.dists)
     end
 end
