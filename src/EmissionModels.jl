@@ -11,7 +11,6 @@ using SpecialFunctions: logfactorial, loggamma, digamma, trigamma, polygamma
 using StatsAPI
 using StatsAPI: fit!
 
-
 include("zeroinflated/poisson.jl")
 include("multivariate/t.jl")
 
