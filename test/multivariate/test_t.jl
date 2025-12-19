@@ -10,6 +10,8 @@ using HiddenMarkovModels
 
 import StatsAPI: fit!
 
+include("../hmm_utils.jl")
+
 @testset "MultivariateT" begin
     @testset "Constructor" begin
         # Valid construction
@@ -233,6 +235,51 @@ import StatsAPI: fit!
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
     end
+
+    @testset "HMM Integration" begin
+        rng = Random.MersenneTwister(888)
+
+        # Create HMM with MultivariateT emissions using create_hmm utility
+        hmm = create_hmm(MultivariateT; n_states=3, α=12.0, dim=2, rng=rng)
+
+        # Verify HMM structure
+        @test length(hmm.init) == 3
+        @test size(hmm.trans) == (3, 3)
+        @test length(hmm.dists) == 3
+
+        # Verify all emissions are MultivariateT with correct dimension
+        @test all(dist -> dist isa MultivariateT, hmm.dists)
+        @test all(dist -> dist.dim == 2, hmm.dists)
+
+        # Verify transition matrix is stochastic
+        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test sum(hmm.init) ≈ 1.0
+
+        # Generate observations from the HMM
+        state_seq, obs_seq = rand(rng, hmm, 100)
+        @test length(state_seq) == 100
+        @test length(obs_seq) == 100
+        @test all(obs -> length(obs) == 2, obs_seq)
+
+        # Verify we can compute forward algorithm
+        log_alpha, log_ll = forward(hmm, obs_seq)
+        @test size(log_alpha) == (3, 100)
+        @test all(isfinite, log_alpha)
+        @test all(isfinite, log_ll)
+
+        # Verify we can run Baum-Welch to fit the HMM
+        hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
+        @test length(lls) <= 5
+        @test all(isfinite, lls)
+
+        # Test with custom parameters
+        hmm_custom = create_hmm(
+            MultivariateT; n_states=4, dim=3, α=8.0, ν_range=(4.0, 12.0), rng=rng
+        )
+        @test length(hmm_custom.init) == 4
+        @test all(dist -> dist.dim == 3, hmm_custom.dists)
+        @test all(4.0 <= dist.ν <= 12.0 for dist in hmm_custom.dists)
+    end
 end
 
 @testset "MultivariateTDiag" begin
@@ -447,5 +494,57 @@ end
         # Compute log densities
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
+    end
+
+    @testset "HMM Integration" begin
+        rng = Random.MersenneTwister(999)
+
+        # Create HMM with MultivariateTDiag emissions using create_hmm utility
+        hmm = create_hmm(MultivariateTDiag; n_states=3, α=10.0, dim=2, rng=rng)
+
+        # Verify HMM structure
+        @test length(hmm.init) == 3
+        @test size(hmm.trans) == (3, 3)
+        @test length(hmm.dists) == 3
+
+        # Verify all emissions are MultivariateTDiag with correct dimension
+        @test all(dist -> dist isa MultivariateTDiag, hmm.dists)
+        @test all(dist -> dist.dim == 2, hmm.dists)
+
+        # Verify transition matrix is stochastic
+        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test sum(hmm.init) ≈ 1.0
+
+        # Generate observations from the HMM
+        state_seq, obs_seq = rand(rng, hmm, 100)
+        @test length(state_seq) == 100
+        @test length(obs_seq) == 100
+        @test all(obs -> length(obs) == 2, obs_seq)
+
+        # Verify we can compute forward algorithm
+        log_alpha, log_ll = forward(hmm, obs_seq)
+        @test size(log_alpha) == (3, 100)
+        @test all(isfinite, log_alpha)
+        @test all(isfinite, log_ll)
+
+        # Verify we can run Baum-Welch to fit the HMM
+        hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
+        @test length(lls) <= 5
+        @test all(isfinite, lls)
+
+        # Test with custom parameters
+        hmm_custom = create_hmm(
+            MultivariateTDiag;
+            n_states=4,
+            dim=3,
+            α=8.0,
+            ν_range=(5.0, 15.0),
+            σ²_range=(1.0, 3.0),
+            rng=rng,
+        )
+        @test length(hmm_custom.init) == 4
+        @test all(dist -> dist.dim == 3, hmm_custom.dists)
+        @test all(5.0 <= dist.ν <= 15.0 for dist in hmm_custom.dists)
+        @test all(all(1.0 .<= dist.σ² .<= 3.0) for dist in hmm_custom.dists)
     end
 end
