@@ -1,6 +1,6 @@
 module EmissionModels
 
-using Distributions: Poisson, Chisq
+using Distributions: Normal, Bernoulli, Poisson, Chisq
 using DensityInterface
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp
@@ -13,10 +13,12 @@ using StatsAPI: fit!
 
 include("zeroinflated/poisson.jl")
 include("multivariate/t.jl")
+include("glms/glm.jl")
 
 # exports
 export rand, logdensityof, fit!
 export PoissonZeroInflated
 export MultivariateT, MultivariateTDiag
+export GaussianGLM
 
 end

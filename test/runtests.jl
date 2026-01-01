@@ -13,6 +13,10 @@ using StatsAPI
             @info "Skipping JET on Julia $VERSION (requires >=1.10 and a release build)"
         end
     end
+
+    @testset "GLM Models" begin
+        include("glm/gaussian.jl")
+    end
     @testset "Zero-inflated models" begin
         include("zeroinflated/test_poisson.jl")
     end
