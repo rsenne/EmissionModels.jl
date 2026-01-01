@@ -4,10 +4,13 @@ using Random
 using DensityInterface
 using StatsAPI
 using SpecialFunctions: loggamma
+using StableRNGs
 using Statistics: mean
 using HiddenMarkovModels
 
 import StatsAPI: fit!
+
+rng = StableRNG(42)
 
 include("../hmm_utils.jl")
 
@@ -52,7 +55,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "Random sampling" begin
-        rng = Random.MersenneTwister(42)
         dist = PoissonZeroInflated(5.0, 0.4)
 
         # Generate samples
@@ -80,7 +82,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "fit! with uniform weights" begin
-        rng = Random.MersenneTwister(123)
         true_λ = 4.0
         true_π = 0.25
         true_dist = PoissonZeroInflated(true_λ, true_π)
@@ -151,9 +152,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
-        rng = Random.MersenneTwister(456)
-
         # Create true distribution
         true_dist = PoissonZeroInflated(6.0, 0.15)
 
@@ -182,8 +180,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "HMM Integration" begin
-        rng = Random.MersenneTwister(777)
-
         # Create HMM with PoissonZeroInflated emissions using create_hmm utility
         hmm = create_hmm(PoissonZeroInflated; n_states=3, α=15.0, rng=rng)
 

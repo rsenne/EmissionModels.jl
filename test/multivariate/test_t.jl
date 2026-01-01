@@ -4,6 +4,7 @@ using Random
 using DensityInterface
 using StatsAPI
 using SpecialFunctions: loggamma
+using StableRNGs
 using Statistics: mean, cov, var
 using LinearAlgebra
 using HiddenMarkovModels
@@ -11,6 +12,8 @@ using HiddenMarkovModels
 import StatsAPI: fit!
 
 include("../hmm_utils.jl")
+
+rng = StableRNG(67)
 
 @testset "MultivariateT" begin
     @testset "Constructor" begin
@@ -79,7 +82,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "Random sampling" begin
-        rng = Random.MersenneTwister(42)
         μ = [2.0, -1.0]
         Σ = [2.0 0.8; 0.8 1.5]
         ν = 10.0
@@ -111,7 +113,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "fit! with uniform weights" begin
-        rng = Random.MersenneTwister(123)
         true_μ = [1.0, -0.5]
         true_Σ = [2.0 0.3; 0.3 1.0]
         true_ν = 8.0
@@ -133,8 +134,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "fit! with weighted observations" begin
-        rng = Random.MersenneTwister(456)
-
         # Create observations with varying weights
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
@@ -150,7 +149,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "fit! with fix_nu option" begin
-        rng = Random.MersenneTwister(789)
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
         weights = ones(n)
@@ -205,9 +203,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
-        rng = Random.MersenneTwister(999)
-
         # Create true distribution
         true_dist = MultivariateT([2.0, -1.0], [1.5 0.4; 0.4 1.0], 6.0)
 
@@ -237,8 +232,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "HMM Integration" begin
-        rng = Random.MersenneTwister(888)
-
         # Create HMM with MultivariateT emissions using create_hmm utility
         hmm = create_hmm(MultivariateT; n_states=3, α=12.0, dim=2, rng=rng)
 
@@ -344,7 +337,6 @@ end
     end
 
     @testset "Random sampling" begin
-        rng = Random.MersenneTwister(42)
         μ = [2.0, -1.0]
         σ² = [2.0, 1.5]
         ν = 10.0
@@ -371,7 +363,6 @@ end
     end
 
     @testset "fit! with uniform weights" begin
-        rng = Random.MersenneTwister(123)
         true_μ = [1.0, -0.5]
         true_σ² = [2.0, 1.0]
         true_ν = 8.0
@@ -393,8 +384,6 @@ end
     end
 
     @testset "fit! with weighted observations" begin
-        rng = Random.MersenneTwister(456)
-
         # Create observations with varying weights
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
@@ -410,7 +399,6 @@ end
     end
 
     @testset "fit! with fix_nu option" begin
-        rng = Random.MersenneTwister(789)
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
         weights = ones(n)
@@ -465,9 +453,6 @@ end
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
-        rng = Random.MersenneTwister(999)
-
         # Create true distribution
         true_dist = MultivariateTDiag([2.0, -1.0], [1.5, 1.0], 6.0)
 
@@ -497,8 +482,6 @@ end
     end
 
     @testset "HMM Integration" begin
-        rng = Random.MersenneTwister(999)
-
         # Create HMM with MultivariateTDiag emissions using create_hmm utility
         hmm = create_hmm(MultivariateTDiag; n_states=3, α=10.0, dim=2, rng=rng)
 
