@@ -28,12 +28,15 @@ mutable struct MultivariateT{T<:Real}
     ν::T
 
     # Cached values for efficiency
-    Σ_chol::Cholesky{T,Matrix{T}}  # Cholesky decomposition of Σ
-    logdetΣ::T                       # log determinant of Σ
-    dim::Int                         # Dimension
+    Σ_chol::Cholesky{T,Matrix{T}}
+    logdetΣ::T
+    dim::Int
+
+    # Scratch buffers for fit! (sequential use only — not thread-safe for concurrent fit!)
+    _diff::Vector{T}
+    _z::Vector{T}
 
     function MultivariateT{T}(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real}
-        # Validation
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
         dim = length(μ)
@@ -42,7 +45,6 @@ mutable struct MultivariateT{T<:Real}
         size(Σ) == (dim, dim) ||
             throw(DimensionMismatch("Σ must be $(dim)×$(dim), got $(size(Σ))"))
 
-        # Check positive definiteness via Cholesky
         Σ_chol = try
             cholesky(Σ)
         catch
@@ -51,11 +53,10 @@ mutable struct MultivariateT{T<:Real}
 
         logdetΣ = logdet(Σ_chol)
 
-        return new{T}(μ, Σ, ν, Σ_chol, logdetΣ, dim)
+        return new{T}(μ, Σ, ν, Σ_chol, logdetΣ, dim, zeros(T, dim), zeros(T, dim))
     end
 end
 
-# Outer constructors for convenience
 MultivariateT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real} = MultivariateT{T}(μ, Σ, ν)
 
 function MultivariateT(μ::Vector, Σ::Matrix, ν::Real)
@@ -93,11 +94,13 @@ mutable struct MultivariateTDiag{T<:Real}
     ν::T
 
     # Cached values for efficiency
-    logdetΣ::T      # sum(log.(σ²))
-    dim::Int        # Dimension
+    logdetΣ::T
+    dim::Int
+
+    # Scratch buffer for fit! (sequential use only — not thread-safe for concurrent fit!)
+    _diff::Vector{T}
 
     function MultivariateTDiag{T}(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
-        # Validation
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
         dim = length(μ)
@@ -111,11 +114,10 @@ mutable struct MultivariateTDiag{T<:Real}
 
         logdetΣ = sum(log, σ²)
 
-        return new{T}(μ, σ², ν, logdetΣ, dim)
+        return new{T}(μ, σ², ν, logdetΣ, dim, zeros(T, dim))
     end
 end
 
-# Outer constructors for convenience
 function MultivariateTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
     return MultivariateTDiag{T}(μ, σ², ν)
 end
@@ -132,15 +134,12 @@ DensityInterface.DensityKind(::MultivariateT) = DensityInterface.HasDensity()
 DensityInterface.DensityKind(::MultivariateTDiag) = DensityInterface.HasDensity()
 
 """
-    logdensityof(dist::MultivariateT, x::Vector)
+    logdensityof(dist::MultivariateT, x::AbstractVector)
 
 Compute the log probability density of the multivariate t-distribution at `x`.
 
-The log density is:
-```
-log p(x) = log Γ((ν+d)/2) - log Γ(ν/2) - (d/2)log(νπ) - (1/2)log|Σ|
-           - ((ν+d)/2) log(1 + (1/ν)(x-μ)' Σ⁻¹ (x-μ))
-```
+Allocates one vector (the residual). The triangular solve is performed in-place
+on that vector to avoid a second allocation.
 """
 function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
     length(x) == dist.dim ||
@@ -149,24 +148,23 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
     d = dist.dim
     ν = dist.ν
 
-    # Compute (x - μ)' Σ⁻¹ (x - μ) efficiently using Cholesky
-    diff = x .- dist.μ
-    z = dist.Σ_chol.L \ diff  # Solve L z = diff
-    mahal² = sum(abs2, z)      # ||z||² = (x-μ)' Σ⁻¹ (x-μ)
+    # 1 allocation. ldiv! solves L\(x-μ) in-place, avoiding a second allocation.
+    diff = x - dist.μ
+    ldiv!(dist.Σ_chol.L, diff)
+    mahal² = sum(abs2, diff)
 
-    # Log density computation
     log_norm =
         loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
 
-    log_kernel = -((ν + d) / 2) * log1p(mahal² / ν)
-
-    return log_norm + log_kernel
+    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
 end
 
 """
-    logdensityof(dist::MultivariateTDiag, x::Vector)
+    logdensityof(dist::MultivariateTDiag, x::AbstractVector)
 
 Compute the log probability density of the diagonal multivariate t-distribution at `x`.
+
+Zero allocations: Mahalanobis distance is accumulated element-wise inline.
 """
 function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVector)
     length(x) == dist.dim ||
@@ -175,20 +173,15 @@ function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVecto
     d = dist.dim
     ν = dist.ν
 
-    # Compute (x - μ)' Σ⁻¹ (x - μ) for diagonal Σ
-    diff = x .- dist.μ
-    mahal² = sum(diff[i]^2 / dist.σ²[i] for i in 1:d)
+    mahal² = sum((x[i] - dist.μ[i])^2 / dist.σ²[i] for i in 1:d)
 
-    # Log density computation
     log_norm =
         loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
 
-    log_kernel = -((ν + d) / 2) * log1p(mahal² / ν)
-
-    return log_norm + log_kernel
+    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
 end
 
-# sampling
+# Random sampling
 
 """
     rand([rng], dist::MultivariateT)
@@ -199,15 +192,9 @@ Uses the representation: X = μ + √(ν/U) × Z
 where Z ~ N(0, Σ) and U ~ χ²(ν) are independent.
 """
 function Random.rand(rng::AbstractRNG, dist::MultivariateT)
-    # Sample from chi-squared with ν degrees of freedom
     u = rand(rng, Chisq(dist.ν))
-
-    # Sample from N(0, I) and transform to N(0, Σ)
     z = randn(rng, dist.dim)
-    scaled_noise = dist.Σ_chol.L * z  # L z ~ N(0, Σ) where Σ = L L'
-
-    # Apply t-distribution scaling
-    return dist.μ .+ sqrt(dist.ν / u) .* scaled_noise
+    return dist.μ .+ sqrt(dist.ν / u) .* (dist.Σ_chol.L * z)
 end
 
 """
@@ -216,15 +203,9 @@ end
 Generate a random sample from the diagonal multivariate t-distribution.
 """
 function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag)
-    # Sample from chi-squared with ν degrees of freedom
     u = rand(rng, Chisq(dist.ν))
-
-    # Sample from N(0, diag(σ²))
     z = randn(rng, dist.dim)
-    scaled_noise = sqrt.(dist.σ²) .* z
-
-    # Apply t-distribution scaling
-    return dist.μ .+ sqrt(dist.ν / u) .* scaled_noise
+    return dist.μ .+ sqrt(dist.ν / u) .* sqrt.(dist.σ²) .* z
 end
 
 """
@@ -268,7 +249,6 @@ function StatsAPI.fit!(
 
     isempty(obs_seq) && return dist
 
-    # Check dimensions
     d = dist.dim
     for (i, obs) in enumerate(obs_seq)
         length(obs) == d || throw(
@@ -276,75 +256,85 @@ function StatsAPI.fit!(
         )
     end
 
-    # Filter out zero-weight observations
-    nonzero_idx = findall(w -> w > 0, weight_seq)
-    isempty(nonzero_idx) && return dist
+    # Total weight (skipping zeros avoids inflating the denominator)
+    weight_sum = zero(eltype(weight_seq))
+    for w in weight_seq
+        w > 0 && (weight_sum += w)
+    end
+    iszero(weight_sum) && return dist
 
-    obs_vec = [obs_seq[i] for i in nonzero_idx]
-    weights = [weight_seq[i] for i in nonzero_idx]
-    n = length(obs_vec)
+    T = eltype(dist.μ)
+    n = length(obs_seq)
 
-    # Normalize weights
-    weight_sum = sum(weights)
-    weights ./= weight_sum
-
-    # EM algorithm
+    # Allocate working arrays once per fit! call (not per iteration)
+    posterior_weights = Vector{T}(undef, n)
+    Σ_acc = zeros(T, d, d)
+    μ_acc = zeros(T, d)
     μ_old = copy(dist.μ)
     Σ_old = copy(dist.Σ)
     ν_old = dist.ν
 
-    for iter in 1:max_iter
-        # E-step: Compute posterior weights
-        # w_i = (ν + d) / (ν + δ_i²) where δ_i² is Mahalanobis distance
-        posterior_weights = zeros(n)
+    for _ in 1:max_iter
+        # E-step + μ M-step accumulation (single pass; uses dist._diff and dist._z)
+        fill!(μ_acc, zero(T))
+        weight_post_sum = zero(T)
 
-        for i in 1:n
-            diff = obs_vec[i] .- dist.μ
-            z = dist.Σ_chol.L \ diff
-            mahal² = sum(abs2, z)
-            posterior_weights[i] = (dist.ν + d) / (dist.ν + mahal²)
+        for i in eachindex(obs_seq)
+            w = weight_seq[i]
+            if w > 0
+                dist._diff .= obs_seq[i] .- dist.μ
+                ldiv!(dist._z, dist.Σ_chol.L, dist._diff)
+                pw = T((dist.ν + d) / (dist.ν + sum(abs2, dist._z)))
+                posterior_weights[i] = pw
+                wp = T(w / weight_sum) * pw
+                for j in 1:d
+                    μ_acc[j] += wp * obs_seq[i][j]
+                end
+                weight_post_sum += wp
+            else
+                posterior_weights[i] = zero(T)
+            end
         end
 
-        # M-step: Update parameters
-        # Update μ
-        weighted_sum = sum(weights[i] * posterior_weights[i] * obs_vec[i] for i in 1:n)
-        weight_post_sum = sum(weights[i] * posterior_weights[i] for i in 1:n)
-        dist.μ .= weighted_sum ./ weight_post_sum
+        dist.μ .= μ_acc ./ weight_post_sum
 
-        # Update Σ
-        Σ_new = zeros(d, d)
-        for i in 1:n
-            diff = obs_vec[i] .- dist.μ
-            Σ_new .+= weights[i] * posterior_weights[i] * (diff * diff')
-        end
-        Σ_new ./= sum(weights)
-
-        # Ensure symmetry and positive definiteness
-        Σ_new .= (Σ_new .+ Σ_new') ./ 2
-
-        # Add small regularization if needed
-        min_eig = minimum(eigvals(Hermitian(Σ_new)))
-        if min_eig <= 0
-            Σ_new .+= (abs(min_eig) + 1e-6) * I
+        # Σ M-step: rank-1 outer product accumulation using BLAS.ger!
+        fill!(Σ_acc, zero(T))
+        for i in eachindex(obs_seq)
+            weight_seq[i] > 0 || continue
+            dist._diff .= obs_seq[i] .- dist.μ
+            wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
+            BLAS.ger!(wp, dist._diff, dist._diff, Σ_acc)
         end
 
-        dist.Σ .= Σ_new
-        dist.Σ_chol = cholesky(dist.Σ)
+        # Symmetrize numerical noise
+        for j in 1:d, k in 1:j-1
+            s = (Σ_acc[j, k] + Σ_acc[k, j]) / 2
+            Σ_acc[j, k] = s
+            Σ_acc[k, j] = s
+        end
+
+        # Update Σ and Cholesky, regularizing if needed
+        Σ_chol_new = try
+            cholesky(Symmetric(Σ_acc))
+        catch
+            min_eig = minimum(eigvals(Hermitian(Σ_acc)))
+            Σ_acc .+= (abs(min_eig) + 1e-6) * I
+            cholesky(Symmetric(Σ_acc))
+        end
+        dist.Σ .= Σ_acc
+        dist.Σ_chol = Σ_chol_new
         dist.logdetΣ = logdet(dist.Σ_chol)
 
-        # Update ν (if not fixed)
+        # ν M-step
         if !fix_nu
-            # Use Optim.jl with Newton's method to maximize the Q function w.r.t. ν
-            # The equation to solve is:
-            # -ψ(ν/2) + log(ν/2) + 1 + (1/n)Σw_i(log(u_i) - u_i) + ψ((ν+d)/2) - log((ν+d)/2) = 0
-            # where u_i are the posterior weights
+            avg_log_u_minus_u = zero(T)
+            for i in eachindex(obs_seq)
+                weight_seq[i] > 0 || continue
+                pw = posterior_weights[i]
+                avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
+            end
 
-            avg_log_u_minus_u = sum(
-                weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n
-            )
-
-            # Optimize over log(ν) to ensure ν > 0
-            # Let x = log(ν), so ν = exp(x)
             function objective(x::Vector)
                 ν_val = exp(x[1])
                 f =
@@ -353,7 +343,7 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                return f^2  # Minimize squared residual
+                return f^2
             end
 
             function gradient!(G, x::Vector)
@@ -364,12 +354,10 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                # df/dν
                 df_dν =
                     -0.5 * trigamma(ν_val / 2) +
                     1 / ν_val +
                     0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                # d(f²)/dx = d(f²)/dν * dν/dx = 2f * df/dν * ν (since dν/dx = ν)
                 return G[1] = 2 * f * df_dν * ν_val
             end
 
@@ -381,30 +369,32 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                # df/dν
                 df_dν =
                     -0.5 * trigamma(ν_val / 2) +
                     1 / ν_val +
                     0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                # d²f/dν²
                 d2f_dν2 =
                     -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
                     0.25 * polygamma(2, (ν_val + d) / 2) +
                     1 / (ν_val + d)^2
-                # d²(f²)/dx² using chain rule: d²(f²)/dx² = [2(df/dν)² + 2f*d²f/dν²]*ν² + 2f*df/dν*ν
                 return H[1, 1] =
                     (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
             end
 
-            # Use Newton's method with analytical derivatives
             td = TwiceDifferentiable(objective, gradient!, hessian!, [log(dist.ν)])
             result = optimize(td, [log(dist.ν)], Newton())
             dist.ν = exp(Optim.minimizer(result)[1])
         end
 
-        # Check convergence
-        μ_diff = maximum(abs.(dist.μ .- μ_old))
-        Σ_diff = maximum(abs.(dist.Σ .- Σ_old))
+        # Convergence check (allocation-free)
+        μ_diff = zero(T)
+        for j in 1:d
+            μ_diff = max(μ_diff, abs(dist.μ[j] - μ_old[j]))
+        end
+        Σ_diff = zero(T)
+        for j in 1:d, k in 1:d
+            Σ_diff = max(Σ_diff, abs(dist.Σ[j, k] - Σ_old[j, k]))
+        end
         ν_diff = abs(dist.ν - ν_old)
 
         if μ_diff < tol && Σ_diff < tol && (fix_nu || ν_diff < tol)
@@ -451,7 +441,6 @@ function StatsAPI.fit!(
 
     isempty(obs_seq) && return dist
 
-    # Check dimensions
     d = dist.dim
     for (i, obs) in enumerate(obs_seq)
         length(obs) == d || throw(
@@ -459,61 +448,74 @@ function StatsAPI.fit!(
         )
     end
 
-    # Filter out zero-weight observations
-    nonzero_idx = findall(w -> w > 0, weight_seq)
-    isempty(nonzero_idx) && return dist
+    weight_sum = zero(eltype(weight_seq))
+    for w in weight_seq
+        w > 0 && (weight_sum += w)
+    end
+    iszero(weight_sum) && return dist
 
-    obs_vec = [obs_seq[i] for i in nonzero_idx]
-    weights = [weight_seq[i] for i in nonzero_idx]
-    n = length(obs_vec)
+    T = eltype(dist.μ)
+    n = length(obs_seq)
 
-    # Normalize weights
-    weight_sum = sum(weights)
-    weights ./= weight_sum
-
-    # EM algorithm
+    # Allocate working arrays once per fit! call
+    posterior_weights = Vector{T}(undef, n)
+    σ²_acc = zeros(T, d)
+    μ_acc = zeros(T, d)
     μ_old = copy(dist.μ)
     σ²_old = copy(dist.σ²)
     ν_old = dist.ν
 
-    for iter in 1:max_iter
-        # E-step: Compute posterior weights
-        posterior_weights = zeros(n)
+    for _ in 1:max_iter
+        # E-step + μ M-step accumulation
+        fill!(μ_acc, zero(T))
+        weight_post_sum = zero(T)
 
-        for i in 1:n
-            diff = obs_vec[i] .- dist.μ
-            mahal² = sum(diff[j]^2 / dist.σ²[j] for j in 1:d)
-            posterior_weights[i] = (dist.ν + d) / (dist.ν + mahal²)
-        end
-
-        # M-step: Update parameters
-        # Update μ
-        weighted_sum = sum(weights[i] * posterior_weights[i] * obs_vec[i] for i in 1:n)
-        weight_post_sum = sum(weights[i] * posterior_weights[i] for i in 1:n)
-        dist.μ .= weighted_sum ./ weight_post_sum
-
-        # Update σ² (diagonal variances)
-        σ²_new = zeros(d)
-        for j in 1:d
-            for i in 1:n
-                diff_j = obs_vec[i][j] - dist.μ[j]
-                σ²_new[j] += weights[i] * posterior_weights[i] * diff_j^2
+        for i in eachindex(obs_seq)
+            w = weight_seq[i]
+            if w > 0
+                mahal² = zero(T)
+                for j in 1:d
+                    dist._diff[j] = obs_seq[i][j] - dist.μ[j]
+                    mahal² += dist._diff[j]^2 / dist.σ²[j]
+                end
+                pw = T((dist.ν + d) / (dist.ν + mahal²))
+                posterior_weights[i] = pw
+                wp = T(w / weight_sum) * pw
+                for j in 1:d
+                    μ_acc[j] += wp * obs_seq[i][j]
+                end
+                weight_post_sum += wp
+            else
+                posterior_weights[i] = zero(T)
             end
-            σ²_new[j] /= sum(weights)
-            σ²_new[j] = max(σ²_new[j], 1e-8)  # Ensure positivity
         end
 
-        dist.σ² .= σ²_new
+        dist.μ .= μ_acc ./ weight_post_sum
+
+        # σ² M-step (second pass with updated μ)
+        fill!(σ²_acc, zero(T))
+        for i in eachindex(obs_seq)
+            weight_seq[i] > 0 || continue
+            wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
+            for j in 1:d
+                diff_j = obs_seq[i][j] - dist.μ[j]
+                σ²_acc[j] += wp * diff_j^2
+            end
+        end
+        for j in 1:d
+            dist.σ²[j] = max(σ²_acc[j], T(1e-8))
+        end
         dist.logdetΣ = sum(log, dist.σ²)
 
-        # Update ν (if not fixed)
+        # ν M-step
         if !fix_nu
-            avg_log_u_minus_u = sum(
-                weights[i] * (log(posterior_weights[i]) - posterior_weights[i]) for i in 1:n
-            )
+            avg_log_u_minus_u = zero(T)
+            for i in eachindex(obs_seq)
+                weight_seq[i] > 0 || continue
+                pw = posterior_weights[i]
+                avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
+            end
 
-            # Optimize over log(ν) to ensure ν > 0
-            # Let x = log(ν), so ν = exp(x)
             function objective(x::Vector)
                 ν_val = exp(x[1])
                 f =
@@ -522,7 +524,7 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                return f^2  # Minimize squared residual
+                return f^2
             end
 
             function gradient!(G, x::Vector)
@@ -533,12 +535,10 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                # df/dν
                 df_dν =
                     -0.5 * trigamma(ν_val / 2) +
                     1 / ν_val +
                     0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                # d(f²)/dx = d(f²)/dν * dν/dx = 2f * df/dν * ν (since dν/dx = ν)
                 return G[1] = 2 * f * df_dν * ν_val
             end
 
@@ -550,30 +550,32 @@ function StatsAPI.fit!(
                     1 +
                     avg_log_u_minus_u +
                     digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                # df/dν
                 df_dν =
                     -0.5 * trigamma(ν_val / 2) +
                     1 / ν_val +
                     0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                # d²f/dν²
                 d2f_dν2 =
                     -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
                     0.25 * polygamma(2, (ν_val + d) / 2) +
                     1 / (ν_val + d)^2
-                # d²(f²)/dx² using chain rule: d²(f²)/dx² = [2(df/dν)² + 2f*d²f/dν²]*ν² + 2f*df/dν*ν
                 return H[1, 1] =
                     (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
             end
 
-            # Use Newton's method with analytical derivatives
             td = TwiceDifferentiable(objective, gradient!, hessian!, [log(dist.ν)])
             result = optimize(td, [log(dist.ν)], Newton())
             dist.ν = exp(Optim.minimizer(result)[1])
         end
 
-        # Check convergence
-        μ_diff = maximum(abs.(dist.μ .- μ_old))
-        σ²_diff = maximum(abs.(dist.σ² .- σ²_old))
+        # Convergence check
+        μ_diff = zero(T)
+        for j in 1:d
+            μ_diff = max(μ_diff, abs(dist.μ[j] - μ_old[j]))
+        end
+        σ²_diff = zero(T)
+        for j in 1:d
+            σ²_diff = max(σ²_diff, abs(dist.σ²[j] - σ²_old[j]))
+        end
         ν_diff = abs(dist.ν - ν_old)
 
         if μ_diff < tol && σ²_diff < tol && (fix_nu || ν_diff < tol)
