@@ -12,7 +12,13 @@ makedocs(;
         edit_link="main",
         assets=String[],
     ),
-    pages=["Home" => "index.md"],
+    pages=[
+        "Home" => "index.md",
+        "Distributions" => "distributions.md",
+        "GLM Emissions" => "glm.md",
+        "Priors" => "priors.md",
+        "Custom Emission Models" => "custom.md",
+    ],
 )
 
 deploydocs(; repo="github.com/rsenne/EmissionModels.jl", devbranch="main")
