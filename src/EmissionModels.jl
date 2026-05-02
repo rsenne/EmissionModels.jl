@@ -3,7 +3,7 @@ module EmissionModels
 using Distributions: Normal, Bernoulli, Poisson, Chisq
 using DensityInterface
 using LinearAlgebra
-using LogExpFunctions: logaddexp, logsumexp
+using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic
 using Optim: optimize, TwiceDifferentiable, Newton, LBFGS, LineSearches
 using Optim
 using Random
@@ -19,6 +19,8 @@ include("glms/glm.jl")
 export rand, logdensityof, fit!
 export PoissonZeroInflated
 export MultivariateT, MultivariateTDiag
-export GaussianGLM
+export GaussianGLM, BernoulliGLM, PoissonGLM
+export AbstractPrior, NoPrior, RidgePrior
+export neglogprior, neglogprior_grad!, neglogprior_hess!
 
 end

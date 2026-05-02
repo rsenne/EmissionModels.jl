@@ -16,6 +16,7 @@ using StatsAPI
 
     @testset "GLM Models" begin
         include("glm/gaussian.jl")
+        include("glm/test_bernoulli_poisson.jl")
     end
     @testset "Zero-inflated models" begin
         include("zeroinflated/test_poisson.jl")

@@ -108,4 +108,28 @@ _expected_logpdf(y, μ, σ2) = -0.5 * log(2π * σ2) - 0.5 * ((y - μ)^2 / σ2)
             @test glm.σ2 ≈ σ2_true atol=0.15
         end
 
+        @testset "Constructor with prior" begin
+            glm = GaussianGLM([0.0, 0.0], 1.0)
+            @test glm.prior isa NoPrior
+
+            glm2 = GaussianGLM([0.0, 0.0], 1.0, RidgePrior(2.0))
+            @test glm2.prior isa RidgePrior
+            @test glm2.prior.λ == 2.0
+        end
+
+        @testset "fit! with RidgePrior shrinks toward zero" begin
+            β_true = [3.0, -3.0]
+            σ2_true = 1.0
+            X, y, w = _synthetic_gaussian_glm(rng, 300, 2; β=β_true, σ2=σ2_true)
+
+            glm_noprior = GaussianGLM([0.0, 0.0], 1.0)
+            fit!(glm_noprior, y, w; control_seq=X)
+
+            glm_ridge = GaussianGLM([0.0, 0.0], 1.0, RidgePrior(10.0))
+            fit!(glm_ridge, y, w; control_seq=X)
+
+            @test norm(glm_ridge.β) < norm(glm_noprior.β)
+            @test all(isfinite, glm_ridge.β)
+        end
+
 end
