@@ -15,15 +15,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: julia-actions/setup-julia@v1
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
           arch: x64
           show-versioninfo: true
 
-      - uses: julia-actions/cache@v1
+      - uses: julia-actions/cache@v3
 
       - name: Install JuliaFormatter and format
         shell: julia --color=yes {0}
@@ -35,7 +35,7 @@ jobs:
 
       - name: Create Pull Request
         id: cpr
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ github.token }}
           commit-message: Format .jl files
