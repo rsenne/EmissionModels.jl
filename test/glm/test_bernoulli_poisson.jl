@@ -271,3 +271,262 @@ end
         @test all(isfinite, glm.β)
     end
 end
+
+function _synthetic_mvbernoulli(rng, n, B_true; weights=:uniform)
+    p, k = size(B_true)
+    X = hcat(ones(n), randn(rng, n, p - 1))
+    obs_seq = Vector{Vector{Int}}(undef, n)
+    for i in 1:n
+        obs_seq[i] = Int[rand(rng) < _sigmoid(dot(B_true[:, j], X[i, :])) ? 1 : 0
+                         for j in 1:k]
+    end
+    w = weights === :uniform ? ones(n) : rand(rng, n) .+ 0.5
+    return X, obs_seq, w
+end
+
+function _synthetic_mvpoisson(rng, n, B_true; weights=:uniform)
+    p, k = size(B_true)
+    X = hcat(ones(n), randn(rng, n, p - 1))
+    obs_seq = Vector{Vector{Int}}(undef, n)
+    for i in 1:n
+        obs_seq[i] = Int[rand(rng, Poisson(exp(dot(B_true[:, j], X[i, :])))) for j in 1:k]
+    end
+    w = weights === :uniform ? ones(n) : rand(rng, n) .+ 0.5
+    return X, obs_seq, w
+end
+
+@testset "MvBernoulliGLM" begin
+    rng = Random.MersenneTwister(123)
+
+    @testset "Constructor" begin
+        B = [0.5 -1.0; 1.0 0.5]
+        glm = MvBernoulliGLM(B)
+        @test glm.B == B
+        @test glm.in_dim == 2
+        @test glm.out_dim == 2
+        @test glm.prior isa NoPrior
+
+        glm_float = MvBernoulliGLM([1.0 0.0; 0.0 1.0])
+        @test eltype(glm_float.B) === Float64
+
+        glm_ridge = MvBernoulliGLM(B, RidgePrior(1.0))
+        @test glm_ridge.prior isa RidgePrior
+    end
+
+    @testset "DensityInterface" begin
+        B = [0.0 1.0; 1.0 -0.5]
+        glm = MvBernoulliGLM(B)
+        @test DensityKind(glm) == HasDensity()
+
+        x = [1.0, 0.5]
+        η1 = dot(B[:, 1], x)
+        η2 = dot(B[:, 2], x)
+        μ1, μ2 = _sigmoid(η1), _sigmoid(η2)
+
+        @test logdensityof(glm, [1, 1]; control_seq=x) ≈ log(μ1) + log(μ2) rtol=1e-10
+        @test logdensityof(glm, [1, 0]; control_seq=x) ≈ log(μ1) + log(1 - μ2) rtol=1e-10
+        @test logdensityof(glm, [0, 1]; control_seq=x) ≈ log(1 - μ1) + log(μ2) rtol=1e-10
+        @test logdensityof(glm, [0, 0]; control_seq=x) ≈ log(1 - μ1) + log(1 - μ2) rtol=1e-10
+        @test logdensityof(glm, [2, 0]; control_seq=x) == -Inf
+    end
+
+    @testset "logdensityof large η (numerical stability)" begin
+        glm = MvBernoulliGLM(reshape([50.0, -50.0], 1, 2))
+        x = [1.0]
+        @test isfinite(logdensityof(glm, [1, 1]; control_seq=x))
+        @test isfinite(logdensityof(glm, [0, 0]; control_seq=x))
+    end
+
+    @testset "Random sampling" begin
+        B = [0.0 0.0; 2.0 -2.0]
+        glm = MvBernoulliGLM(B)
+        x = [1.0, 0.5]
+
+        n = 5_000
+        samples = [rand(rng, glm; control_seq=x) for _ in 1:n]
+        Y = reduce(hcat, samples)'   # n × k
+
+        @test all(s -> s == 0 || s == 1, vec(Y))
+        @test mean(Y[:, 1]) ≈ _sigmoid(dot(B[:, 1], x)) atol=0.05
+        @test mean(Y[:, 2]) ≈ _sigmoid(dot(B[:, 2], x)) atol=0.05
+    end
+
+    @testset "fit! recovers B" begin
+        B_true = [0.3 -1.0; -1.2 0.8]
+        X, obs_seq, w = _synthetic_mvbernoulli(rng, 5000, B_true)
+
+        glm = MvBernoulliGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        @test glm.B ≈ B_true atol=0.20
+        @test all(isfinite, glm.B)
+    end
+
+    @testset "fit! random weights" begin
+        B_true = [1.0 -0.5; 0.5 1.0]
+        X, obs_seq, w = _synthetic_mvbernoulli(rng, 5000, B_true; weights=:random)
+
+        glm = MvBernoulliGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        @test glm.B ≈ B_true atol=0.25
+    end
+
+    @testset "fit! with RidgePrior shrinks toward zero" begin
+        B_true = [2.0 -2.0; -2.0 2.0]
+        X, obs_seq, w = _synthetic_mvbernoulli(rng, 500, B_true)
+
+        glm_noprior = MvBernoulliGLM(zeros(2, 2))
+        fit!(glm_noprior, obs_seq, w; control_seq=X)
+
+        glm_ridge = MvBernoulliGLM(zeros(2, 2), RidgePrior(10.0))
+        fit!(glm_ridge, obs_seq, w; control_seq=X)
+
+        @test norm(glm_ridge.B) < norm(glm_noprior.B)
+        @test all(isfinite, glm_ridge.B)
+    end
+
+    @testset "matches independent BernoulliGLM fits" begin
+        B_true = [0.4 -0.7; -0.9 0.3]
+        X, obs_seq, w = _synthetic_mvbernoulli(rng, 1000, B_true)
+
+        glm = MvBernoulliGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        for j in 1:2
+            y_j = [obs_seq[i][j] for i in eachindex(obs_seq)]
+            glm_j = BernoulliGLM(zeros(2))
+            fit!(glm_j, y_j, w; control_seq=X)
+            @test glm.B[:, j] ≈ glm_j.β rtol=1e-6
+        end
+    end
+
+    @testset "fit! DimensionMismatch" begin
+        glm = MvBernoulliGLM(zeros(2, 2))
+        X = ones(5, 2)
+        good_obs = [zeros(Int, 2) for _ in 1:5]
+        @test_throws DimensionMismatch fit!(
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+        )
+        @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
+        @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))
+
+        wrong_dim_obs = [zeros(Int, 3) for _ in 1:5]
+        @test_throws DimensionMismatch fit!(glm, wrong_dim_obs, ones(5); control_seq=X)
+    end
+end
+
+@testset "MvPoissonGLM" begin
+    rng = Random.MersenneTwister(456)
+
+    @testset "Constructor" begin
+        B = [1.0 0.5; -0.3 0.2]
+        glm = MvPoissonGLM(B)
+        @test glm.B == B
+        @test glm.in_dim == 2
+        @test glm.out_dim == 2
+        @test glm.prior isa NoPrior
+
+        glm_float = MvPoissonGLM([1.0 0.0; 0.0 1.0])
+        @test eltype(glm_float.B) === Float64
+
+        glm_ridge = MvPoissonGLM(B, RidgePrior(0.5))
+        @test glm_ridge.prior isa RidgePrior
+    end
+
+    @testset "DensityInterface" begin
+        B = [0.5 0.0; 0.2 -0.5]
+        glm = MvPoissonGLM(B)
+        @test DensityKind(glm) == HasDensity()
+
+        x = [1.0, 1.0]
+        μ1 = exp(dot(B[:, 1], x))
+        μ2 = exp(dot(B[:, 2], x))
+
+        for k1 in 0:3, k2 in 0:3
+            expected = logpdf(Poisson(μ1), k1) + logpdf(Poisson(μ2), k2)
+            @test logdensityof(glm, [k1, k2]; control_seq=x) ≈ expected rtol=1e-10
+        end
+
+        @test logdensityof(glm, [-1, 0]; control_seq=x) == -Inf
+        @test logdensityof(glm, [0, -1]; control_seq=x) == -Inf
+    end
+
+    @testset "Random sampling" begin
+        B = reshape([1.5, 0.5], 1, 2)
+        glm = MvPoissonGLM(B)
+        x = [1.0]
+
+        n = 5_000
+        samples = [rand(rng, glm; control_seq=x) for _ in 1:n]
+        Y = reduce(hcat, samples)'
+
+        @test all(s -> s >= 0, vec(Y))
+        @test mean(Y[:, 1]) ≈ exp(B[1, 1]) atol=0.2
+        @test mean(Y[:, 2]) ≈ exp(B[1, 2]) atol=0.2
+    end
+
+    @testset "fit! recovers B" begin
+        B_true = [1.0 0.5; 0.4 -0.3]
+        X, obs_seq, w = _synthetic_mvpoisson(rng, 3000, B_true)
+
+        glm = MvPoissonGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        @test glm.B ≈ B_true atol=0.15
+        @test all(isfinite, glm.B)
+    end
+
+    @testset "fit! random weights" begin
+        B_true = [0.5 0.0; -0.3 0.4]
+        X, obs_seq, w = _synthetic_mvpoisson(rng, 3000, B_true; weights=:random)
+
+        glm = MvPoissonGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        @test glm.B ≈ B_true atol=0.20
+    end
+
+    @testset "fit! with RidgePrior shrinks toward zero" begin
+        B_true = [2.0 -1.5; -1.0 1.5]
+        X, obs_seq, w = _synthetic_mvpoisson(rng, 500, B_true)
+
+        glm_noprior = MvPoissonGLM(zeros(2, 2))
+        fit!(glm_noprior, obs_seq, w; control_seq=X)
+
+        glm_ridge = MvPoissonGLM(zeros(2, 2), RidgePrior(10.0))
+        fit!(glm_ridge, obs_seq, w; control_seq=X)
+
+        @test norm(glm_ridge.B) < norm(glm_noprior.B)
+        @test all(isfinite, glm_ridge.B)
+    end
+
+    @testset "matches independent PoissonGLM fits" begin
+        B_true = [0.5 -0.3; 0.4 0.2]
+        X, obs_seq, w = _synthetic_mvpoisson(rng, 1000, B_true)
+
+        glm = MvPoissonGLM(zeros(2, 2))
+        fit!(glm, obs_seq, w; control_seq=X)
+
+        for j in 1:2
+            y_j = [obs_seq[i][j] for i in eachindex(obs_seq)]
+            glm_j = PoissonGLM(zeros(2))
+            fit!(glm_j, y_j, w; control_seq=X)
+            @test glm.B[:, j] ≈ glm_j.β rtol=1e-6
+        end
+    end
+
+    @testset "fit! DimensionMismatch" begin
+        glm = MvPoissonGLM(zeros(2, 2))
+        X = ones(5, 2)
+        good_obs = [zeros(Int, 2) for _ in 1:5]
+        @test_throws DimensionMismatch fit!(
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+        )
+        @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
+        @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))
+
+        wrong_dim_obs = [zeros(Int, 3) for _ in 1:5]
+        @test_throws DimensionMismatch fit!(glm, wrong_dim_obs, ones(5); control_seq=X)
+    end
+end

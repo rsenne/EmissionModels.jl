@@ -20,6 +20,7 @@ export rand, logdensityof, fit!
 export PoissonZeroInflated
 export MultivariateT, MultivariateTDiag
 export GaussianGLM, BernoulliGLM, PoissonGLM
+export MvGaussianGLM, MvBernoulliGLM, MvPoissonGLM
 export AbstractPrior, NoPrior, RidgePrior
 export neglogprior, neglogprior_grad!, neglogprior_hess!
 

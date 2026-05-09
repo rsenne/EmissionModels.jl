@@ -46,7 +46,7 @@ mutable struct MultivariateT{T<:Real}
             throw(DimensionMismatch("Σ must be $(dim)×$(dim), got $(size(Σ))"))
 
         Σ_chol = try
-            cholesky(Σ)
+            cholesky(Symmetric(Σ, :L))
         catch
             throw(ArgumentError("Σ must be positive definite"))
         end
@@ -147,11 +147,16 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
 
     d = dist.dim
     ν = dist.ν
+    diff = dist._diff
 
-    # 1 allocation. ldiv! solves L\(x-μ) in-place, avoiding a second allocation.
-    diff = x - dist.μ
+    #= Zero allocation: reuse the struct scratch buffer for the residual.
+       Sequential use only — not safe for concurrent calls on the same dist. =#
+    @. diff = x - dist.μ
     ldiv!(dist.Σ_chol.L, diff)
-    mahal² = sum(abs2, diff)
+    mahal² = zero(eltype(diff))
+    for i in eachindex(diff)
+        mahal² += diff[i] * diff[i]
+    end
 
     log_norm =
         loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
@@ -316,11 +321,11 @@ function StatsAPI.fit!(
 
         # Update Σ and Cholesky, regularizing if needed
         Σ_chol_new = try
-            cholesky(Symmetric(Σ_acc))
+            cholesky(Symmetric(Σ_acc, :L))
         catch
             min_eig = minimum(eigvals(Hermitian(Σ_acc)))
             Σ_acc .+= (abs(min_eig) + 1e-6) * I
-            cholesky(Symmetric(Σ_acc))
+            cholesky(Symmetric(Σ_acc, :L))
         end
         dist.Σ .= Σ_acc
         dist.Σ_chol = Σ_chol_new

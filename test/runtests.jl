@@ -26,6 +26,10 @@ using StatsAPI
         include("multivariate/test_t.jl")
     end
 
+    @testset "Allocations" begin
+        include("allocations.jl")
+    end
+
     @testset "Code quality (Aqua.jl)" begin
         Aqua.test_all(EmissionModels)
     end
