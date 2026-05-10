@@ -566,12 +566,6 @@ mutable struct MvGaussianGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
     logdetΣ::T
     in_dim::Int
     out_dim::Int
-
-    #= Scratch for hot paths. Sequential use only — not safe for concurrent
-       calls on the same instance. HMM E-steps run forward/backward serially
-       per state, so each emission has its own scratch and this is fine. =#
-    _diff::Vector{T}
-    _z::Vector{T}
 end
 
 function MvGaussianGLM(
@@ -594,7 +588,6 @@ function MvGaussianGLM(
     return MvGaussianGLM{T, P}(
         Matrix{T}(B), Matrix{T}(Σ), prior,
         Σ_chol, logdet(Σ_chol), p, k,
-        Vector{T}(undef, k), Vector{T}(undef, k),
     )
 end
 
@@ -618,8 +611,8 @@ DensityInterface.DensityKind(::MvGaussianGLM) = DensityInterface.HasDensity()
 """
     logdensityof(glm::MvGaussianGLM, y::AbstractVector; control_seq)
 
-Log density of `y ∈ ℝᵏ` under the conditional MvNormal model. Zero allocation:
-the residual buffer `_diff` is pre-allocated in the struct.
+Log density of `y ∈ ℝᵏ` under the conditional MvNormal model. Allocates one
+length-`k` residual vector per call — thread-safe (matches `Distributions.MvNormal`).
 """
 function DensityInterface.logdensityof(
     glm::MvGaussianGLM,
@@ -636,7 +629,7 @@ function DensityInterface.logdensityof(
     k = glm.out_dim
     p = glm.in_dim
     T = eltype(glm.B)
-    diff = glm._diff
+    diff = Vector{T}(undef, k)
 
     #= μ = Bᵀ x and diff = y − μ, fused as a single loop to avoid the
        Adjoint*Vector temporary that BLAS would otherwise allocate. =#
@@ -669,8 +662,12 @@ end
 """
     rand!(rng, glm::MvGaussianGLM, out; control_seq)
 
-In-place sample. `out` must be a length-`out_dim` `AbstractVector{T}`.
-Zero allocation.
+In-place sample into `out` (length `out_dim`). Zero allocation, thread-safe:
+the trick is to draw `z ~ N(0, I)` directly into `out`, multiply by `L`
+in-place (`lmul!`), then add `μ = Bᵀ x` element-wise. Lower-triangular
+multiply is well-defined in place because each output `xᵢ = Σⱼ≤ᵢ Lᵢⱼ zⱼ`
+only reads `z[1..i]`, so iterating `i = k, k-1, …, 1` never reads an
+already-overwritten entry.
 """
 function Random.rand!(
     rng::AbstractRNG,
@@ -687,19 +684,18 @@ function Random.rand!(
 
     k = glm.out_dim
     p = glm.in_dim
-    z = glm._z
-    randn!(rng, z)
 
-    #= out = Bᵀ x  (manual loop avoids the Adjoint*Vector temporary) =#
+    randn!(rng, out)
+    lmul!(glm.Σ_chol.L, out)         # out = L * z, in place
+
+    # out += μ = Bᵀ x (Bᵀx is computed inline; no aliasing with out)
     for j in 1:k
         sj = zero(T)
         for r in 1:p
             sj += glm.B[r, j] * control_seq[r]
         end
-        out[j] = sj
+        out[j] += sj
     end
-    #= out += L z  via in-place 5-arg mul! =#
-    mul!(out, glm.Σ_chol.L, z, true, true)
     return out
 end
 

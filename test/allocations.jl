@@ -6,18 +6,20 @@ using DensityInterface
 using StatsAPI
 
 #=
-  Allocation regression tests. The pattern
-  is: warm up by running the operation once, then call it many times in a
-  type-stable function and divide @allocated by the rep count to get
-  per-call bytes.
+  Allocation regression tests. Warm up first, then call the operation many
+  times in a type-stable function and divide @allocated by the rep count.
 
   Steady-state targets (per call):
-    - All logdensityof: 0 bytes
-    - All rand!: 0 bytes (rand allocates only the return vector)
-    - fit! is bounded by O(p² + k²), independent of n
+    - Univariate logdensityof, MvBernoulli/MvPoisson logdensityof,
+      MultivariateTDiag logdensityof, PoissonZeroInflated logdensityof: 0 B
+    - MvGaussianGLM logdensityof, MultivariateT logdensityof: 1 length-k
+      vector per call. Thread-safe by design — the struct scratch was removed
+      because two threads reading the same dist would race. Bound to 256 B/call.
+    - All Mv rand!: 0 bytes (zero-alloc, thread-safe via in-place lmul!).
+    - fit! is bounded by O(p² + k²), independent of n.
 
-  See `bench_*` helpers below for why a top-level `@allocated foo()` would
-  report misleading kwarg-lowering noise that does NOT exist in real loops.
+  Top-level `@allocated foo()` reports kwarg-lowering noise (~48 B) that
+  does NOT exist in real loops — measure inside a function.
 =#
 
 bench_logd(d, y, x, n) = (s = 0.0; for _ in 1:n; s += logdensityof(d, y; control_seq=x); end; s)
@@ -33,7 +35,7 @@ bench_rand_unctrl_vec(rng, d, n) = (s = 0.0; for _ in 1:n; s += rand(rng, d)[1];
     rng = Random.MersenneTwister(0)
     REPS = 1000
 
-    @testset "logdensityof — zero alloc per call" begin
+    @testset "logdensityof — bounded per call" begin
         x = [1.0, 2.0]
 
         g  = GaussianGLM([0.5, -1.0], 1.0)
@@ -48,12 +50,16 @@ bench_rand_unctrl_vec(rng, d, n) = (s = 0.0; for _ in 1:n; s += rand(rng, d)[1];
         bench_logd(g, 0.5, x, 1); bench_logd(b, 1, x, 1); bench_logd(p, 2, x, 1)
         bench_logd(mg, yv, x, 1); bench_logd(mb, yi, x, 1); bench_logd(mp, yi, x, 1)
 
+        # Truly zero-alloc (no scratch needed)
         @test (@allocated bench_logd(g,  0.5, x, REPS)) == 0
         @test (@allocated bench_logd(b,  1,   x, REPS)) == 0
         @test (@allocated bench_logd(p,  2,   x, REPS)) == 0
-        @test (@allocated bench_logd(mg, yv,  x, REPS)) == 0
         @test (@allocated bench_logd(mb, yi,  x, REPS)) == 0
         @test (@allocated bench_logd(mp, yi,  x, REPS)) == 0
+
+        # MvGaussianGLM: one length-k residual per call (thread-safe).
+        # Bound to ~256 B/call → 256 * REPS for the loop.
+        @test (@allocated bench_logd(mg, yv, x, REPS)) ≤ 256 * REPS
     end
 
     @testset "rand!/rand — zero alloc beyond return" begin
@@ -152,9 +158,10 @@ bench_rand_unctrl_vec(rng, d, n) = (s = 0.0; for _ in 1:n; s += rand(rng, d)[1];
         mvt = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
         xv = [0.1, 0.2]
 
-        # Cholesky now stored as :L and residual reuses struct scratch.
+        # Cholesky stored as :L (no .L copy). Residual is allocated locally
+        # per call so concurrent calls on the same dist are race-free.
         bench_logd_unctrl(mvt, xv, 1)
-        @test (@allocated bench_logd_unctrl(mvt, xv, REPS)) == 0
+        @test (@allocated bench_logd_unctrl(mvt, xv, REPS)) ≤ 256 * REPS
 
         bench_rand_unctrl_vec(rng, mvt, 1)
         # rand still allocates the return vector; bound it loosely.
