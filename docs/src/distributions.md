@@ -81,3 +81,20 @@ fit!(dist, obs_seq, weight_seq; max_iter=100, tol=1e-6, fix_nu=false)
 - The M-step updates ``μ`` and ``Σ`` (and optionally ``ν``).
 - Pass `fix_nu=true` to keep the degrees of freedom fixed during fitting.
 - `μ` and ``Σ`` are re-regularized on-the-fly if the Cholesky factorization fails.
+
+## API Reference
+
+```@docs
+PoissonZeroInflated
+MultivariateT
+MultivariateTDiag
+DensityInterface.logdensityof(::PoissonZeroInflated, ::Integer)
+DensityInterface.logdensityof(::MultivariateT, ::AbstractVector)
+DensityInterface.logdensityof(::MultivariateTDiag, ::AbstractVector)
+Base.rand(::Random.AbstractRNG, ::PoissonZeroInflated)
+Base.rand(::Random.AbstractRNG, ::MultivariateT)
+Base.rand(::Random.AbstractRNG, ::MultivariateTDiag)
+StatsAPI.fit!(::PoissonZeroInflated, ::AbstractVector, ::AbstractVector)
+StatsAPI.fit!(::MultivariateT, ::Any, ::Any)
+StatsAPI.fit!(::MultivariateTDiag, ::Any, ::Any)
+```

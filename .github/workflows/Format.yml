@@ -1,11 +1,18 @@
 name: Formatter
+
 on:
   schedule:
     - cron: '0 0 * * *'
+
   push:
     branches:
-      - 'main'
-    tags: ['*']
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,8 +21,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
       - uses: julia-actions/setup-julia@v3
         with:
@@ -26,25 +36,38 @@ jobs:
       - uses: julia-actions/cache@v3
 
       - name: Install JuliaFormatter and format
+        if: github.event_name != 'pull_request'
         shell: julia --color=yes {0}
         run: |
           using Pkg
-          Pkg.add("JuliaFormatter")
+          Pkg.add(Pkg.PackageSpec(name = "JuliaFormatter", version = "2"))
           using JuliaFormatter
           format(".")
 
+      - name: Check formatting on PR
+        if: github.event_name == 'pull_request'
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          Pkg.add(Pkg.PackageSpec(name = "JuliaFormatter", version = "2"))
+          using JuliaFormatter
+          @assert format(".", overwrite = false)
+
       - name: Create Pull Request
         id: cpr
+        if: github.event_name != 'pull_request'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ github.token }}
           commit-message: Format .jl files
           title: 'Automatic JuliaFormatter.jl run'
           branch: auto-juliaformatter-pr
+          base: main
           delete-branch: true
           labels: formatting, automated pr, no changelog
 
       - name: Check outputs
+        if: github.event_name != 'pull_request'
         run: |
           echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
           echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"

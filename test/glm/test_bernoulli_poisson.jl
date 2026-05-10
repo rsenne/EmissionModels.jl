@@ -6,7 +6,6 @@ using StatsAPI
 using LinearAlgebra
 using Distributions: Bernoulli, Poisson, logpdf
 
-
 function _sigmoid(η)
     return one(η) / (one(η) + exp(-η))
 end
@@ -92,8 +91,8 @@ end
         η = dot(glm.β, x)
         μ = _sigmoid(η)
 
-        @test logdensityof(glm, 1; control_seq=x) ≈ log(μ) rtol=1e-10
-        @test logdensityof(glm, 0; control_seq=x) ≈ log(1 - μ) rtol=1e-10
+        @test logdensityof(glm, 1; control_seq=x) ≈ log(μ) rtol = 1e-10
+        @test logdensityof(glm, 0; control_seq=x) ≈ log(1 - μ) rtol = 1e-10
         @test logdensityof(glm, 2; control_seq=x) == -Inf
         @test logdensityof(glm, -1; control_seq=x) == -Inf
     end
@@ -116,7 +115,7 @@ end
         samples = [rand(rng, glm; control_seq=x) for _ in 1:n]
 
         @test all(s -> s == 0 || s == 1, samples)
-        @test mean(samples) ≈ _sigmoid(dot(glm.β, x)) atol=0.05
+        @test mean(samples) ≈ _sigmoid(dot(glm.β, x)) atol = 0.05
     end
 
     @testset "fit! uniform weights" begin
@@ -126,7 +125,7 @@ end
         glm = BernoulliGLM(zeros(2))
         fit!(glm, y, w; control_seq=X)
 
-        @test glm.β ≈ β_true atol=0.15
+        @test glm.β ≈ β_true atol = 0.15
         @test all(isfinite, glm.β)
     end
 
@@ -137,7 +136,7 @@ end
         glm = BernoulliGLM(zeros(2))
         fit!(glm, y, w; control_seq=X)
 
-        @test glm.β ≈ β_true atol=0.20
+        @test glm.β ≈ β_true atol = 0.20
     end
 
     @testset "fit! with RidgePrior shrinks toward zero" begin
@@ -160,7 +159,9 @@ end
         X = ones(5, 2)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 4), ones(5); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(4); control_seq=X)
-        @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(5); control_seq=ones(5, 3))
+        @test_throws DimensionMismatch fit!(
+            glm, ones(Int, 5), ones(5); control_seq=ones(5, 3)
+        )
     end
 
     @testset "fit! all-zero observations" begin
@@ -176,7 +177,6 @@ end
         @test all(isfinite, glm.β)
     end
 end
-
 
 @testset "PoissonGLM" begin
     rng = Random.MersenneTwister(99)
@@ -199,7 +199,7 @@ end
         μ = exp(η)
 
         for k in 0:5
-            @test logdensityof(glm, k; control_seq=x) ≈ logpdf(Poisson(μ), k) rtol=1e-10
+            @test logdensityof(glm, k; control_seq=x) ≈ logpdf(Poisson(μ), k) rtol = 1e-10
         end
 
         @test logdensityof(glm, -1; control_seq=x) == -Inf
@@ -212,7 +212,7 @@ end
         samples = [rand(rng, glm; control_seq=x) for _ in 1:n]
 
         @test all(s -> s >= 0, samples)
-        @test mean(samples) ≈ exp(glm.β[1]) atol=0.2
+        @test mean(samples) ≈ exp(glm.β[1]) atol = 0.2
     end
 
     @testset "fit! uniform weights" begin
@@ -222,7 +222,7 @@ end
         glm = PoissonGLM(zeros(2))
         fit!(glm, y, w; control_seq=X)
 
-        @test glm.β ≈ β_true atol=0.15
+        @test glm.β ≈ β_true atol = 0.15
         @test all(isfinite, glm.β)
     end
 
@@ -233,7 +233,7 @@ end
         glm = PoissonGLM(zeros(2))
         fit!(glm, y, w; control_seq=X)
 
-        @test glm.β ≈ β_true atol=0.15
+        @test glm.β ≈ β_true atol = 0.15
     end
 
     @testset "fit! with RidgePrior shrinks toward zero" begin
@@ -255,7 +255,9 @@ end
         X = ones(5, 2)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 4), ones(5); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(4); control_seq=X)
-        @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(5); control_seq=ones(5, 3))
+        @test_throws DimensionMismatch fit!(
+            glm, ones(Int, 5), ones(5); control_seq=ones(5, 3)
+        )
     end
 
     @testset "fit! all-zero counts" begin
@@ -277,8 +279,9 @@ function _synthetic_mvbernoulli(rng, n, B_true; weights=:uniform)
     X = hcat(ones(n), randn(rng, n, p - 1))
     obs_seq = Vector{Vector{Int}}(undef, n)
     for i in 1:n
-        obs_seq[i] = Int[rand(rng) < _sigmoid(dot(B_true[:, j], X[i, :])) ? 1 : 0
-                         for j in 1:k]
+        obs_seq[i] = Int[
+            rand(rng) < _sigmoid(dot(B_true[:, j], X[i, :])) ? 1 : 0 for j in 1:k
+        ]
     end
     w = weights === :uniform ? ones(n) : rand(rng, n) .+ 0.5
     return X, obs_seq, w
@@ -323,10 +326,11 @@ end
         η2 = dot(B[:, 2], x)
         μ1, μ2 = _sigmoid(η1), _sigmoid(η2)
 
-        @test logdensityof(glm, [1, 1]; control_seq=x) ≈ log(μ1) + log(μ2) rtol=1e-10
-        @test logdensityof(glm, [1, 0]; control_seq=x) ≈ log(μ1) + log(1 - μ2) rtol=1e-10
-        @test logdensityof(glm, [0, 1]; control_seq=x) ≈ log(1 - μ1) + log(μ2) rtol=1e-10
-        @test logdensityof(glm, [0, 0]; control_seq=x) ≈ log(1 - μ1) + log(1 - μ2) rtol=1e-10
+        @test logdensityof(glm, [1, 1]; control_seq=x) ≈ log(μ1) + log(μ2) rtol = 1e-10
+        @test logdensityof(glm, [1, 0]; control_seq=x) ≈ log(μ1) + log(1 - μ2) rtol = 1e-10
+        @test logdensityof(glm, [0, 1]; control_seq=x) ≈ log(1 - μ1) + log(μ2) rtol = 1e-10
+        @test logdensityof(glm, [0, 0]; control_seq=x) ≈ log(1 - μ1) + log(1 - μ2) rtol =
+            1e-10
         @test logdensityof(glm, [2, 0]; control_seq=x) == -Inf
     end
 
@@ -347,8 +351,8 @@ end
         Y = reduce(hcat, samples)'   # n × k
 
         @test all(s -> s == 0 || s == 1, vec(Y))
-        @test mean(Y[:, 1]) ≈ _sigmoid(dot(B[:, 1], x)) atol=0.05
-        @test mean(Y[:, 2]) ≈ _sigmoid(dot(B[:, 2], x)) atol=0.05
+        @test mean(Y[:, 1]) ≈ _sigmoid(dot(B[:, 1], x)) atol = 0.05
+        @test mean(Y[:, 2]) ≈ _sigmoid(dot(B[:, 2], x)) atol = 0.05
     end
 
     @testset "fit! recovers B" begin
@@ -358,7 +362,7 @@ end
         glm = MvBernoulliGLM(zeros(2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.20
+        @test glm.B ≈ B_true atol = 0.20
         @test all(isfinite, glm.B)
     end
 
@@ -369,7 +373,7 @@ end
         glm = MvBernoulliGLM(zeros(2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.25
+        @test glm.B ≈ B_true atol = 0.25
     end
 
     @testset "fit! with RidgePrior shrinks toward zero" begin
@@ -397,7 +401,7 @@ end
             y_j = [obs_seq[i][j] for i in eachindex(obs_seq)]
             glm_j = BernoulliGLM(zeros(2))
             fit!(glm_j, y_j, w; control_seq=X)
-            @test glm.B[:, j] ≈ glm_j.β rtol=1e-6
+            @test glm.B[:, j] ≈ glm_j.β rtol = 1e-6
         end
     end
 
@@ -406,7 +410,7 @@ end
         X = ones(5, 2)
         good_obs = [zeros(Int, 2) for _ in 1:5]
         @test_throws DimensionMismatch fit!(
-            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X
         )
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))
@@ -445,7 +449,7 @@ end
 
         for k1 in 0:3, k2 in 0:3
             expected = logpdf(Poisson(μ1), k1) + logpdf(Poisson(μ2), k2)
-            @test logdensityof(glm, [k1, k2]; control_seq=x) ≈ expected rtol=1e-10
+            @test logdensityof(glm, [k1, k2]; control_seq=x) ≈ expected rtol = 1e-10
         end
 
         @test logdensityof(glm, [-1, 0]; control_seq=x) == -Inf
@@ -462,8 +466,8 @@ end
         Y = reduce(hcat, samples)'
 
         @test all(s -> s >= 0, vec(Y))
-        @test mean(Y[:, 1]) ≈ exp(B[1, 1]) atol=0.2
-        @test mean(Y[:, 2]) ≈ exp(B[1, 2]) atol=0.2
+        @test mean(Y[:, 1]) ≈ exp(B[1, 1]) atol = 0.2
+        @test mean(Y[:, 2]) ≈ exp(B[1, 2]) atol = 0.2
     end
 
     @testset "fit! recovers B" begin
@@ -473,7 +477,7 @@ end
         glm = MvPoissonGLM(zeros(2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.15
+        @test glm.B ≈ B_true atol = 0.15
         @test all(isfinite, glm.B)
     end
 
@@ -484,7 +488,7 @@ end
         glm = MvPoissonGLM(zeros(2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.20
+        @test glm.B ≈ B_true atol = 0.20
     end
 
     @testset "fit! with RidgePrior shrinks toward zero" begin
@@ -512,7 +516,7 @@ end
             y_j = [obs_seq[i][j] for i in eachindex(obs_seq)]
             glm_j = PoissonGLM(zeros(2))
             fit!(glm_j, y_j, w; control_seq=X)
-            @test glm.B[:, j] ≈ glm_j.β rtol=1e-6
+            @test glm.B[:, j] ≈ glm_j.β rtol = 1e-6
         end
     end
 
@@ -521,7 +525,7 @@ end
         X = ones(5, 2)
         good_obs = [zeros(Int, 2) for _ in 1:5]
         @test_throws DimensionMismatch fit!(
-            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X
         )
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))

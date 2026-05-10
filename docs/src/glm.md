@@ -42,6 +42,28 @@ Log-linear regression for count observations ``Y ∈ \{0, 1, \ldots\}``.
 glm = PoissonGLM(zeros(3))
 ```
 
+## Multivariate GLM types
+
+Each univariate GLM has a multivariate counterpart that emits a length-``k`` observation vector for a single input ``x``. Coefficients are stored as a ``p × k`` matrix ``B``; column ``j`` is the coefficient vector for output dimension ``j``.
+
+### `MvGaussianGLM(B, Σ)`
+
+Multivariate linear regression with shared full covariance ``Σ``.
+
+``Y \mid x \sim \mathcal{N}(Bᵀx, \ Σ)``
+
+### `MvBernoulliGLM(B)`
+
+``k`` independent logistic regressions sharing the same input ``x``.
+
+``P(Y \mid x) = \prod_{j=1}^{k} \text{Bernoulli}(σ(B[:,j]ᵀx))``
+
+### `MvPoissonGLM(B)`
+
+``k`` independent Poisson log-linear regressions sharing the same input ``x``.
+
+``P(Y \mid x) = \prod_{j=1}^{k} \text{Poisson}(\exp(B[:,j]ᵀx))``
+
 ## Fitting GLM emissions
 
 GLM emissions are fit by minimizing the negative log-posterior (or weighted negative log-likelihood when no prior is used):
@@ -49,5 +71,31 @@ GLM emissions are fit by minimizing the negative log-posterior (or weighted nega
 ``\ell(β) = -\sum_{i=1}^{n} w_i \, \log p(y_i \mid x_i, β) + \text{neglogprior}(β)``
 
 ```julia
-fit!(glm, y_seq, w_seq; control_seq=X, optim_opts=Optim.Options())
+# Gaussian is closed-form weighted least squares.
+fit!(glm, y_seq, w_seq; control_seq=X)
+
+# Bernoulli / Poisson use a hand-rolled Newton with backtracking line search.
+fit!(glm, y_seq, w_seq; control_seq=X,
+     max_iter=50, gtol=1e-8, max_backtrack=20)
+```
+
+## API Reference
+
+```@docs
+EmissionModels.AbstractGLM
+GaussianGLM
+BernoulliGLM
+PoissonGLM
+MvGaussianGLM
+MvBernoulliGLM
+MvPoissonGLM
+DensityInterface.logdensityof(::MvGaussianGLM, ::AbstractVector)
+StatsAPI.fit!(::BernoulliGLM, ::AbstractVector, ::AbstractVector{<:Real})
+StatsAPI.fit!(::PoissonGLM, ::AbstractVector, ::AbstractVector{<:Real})
+StatsAPI.fit!(::MvGaussianGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
+StatsAPI.fit!(::MvBernoulliGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
+StatsAPI.fit!(::MvPoissonGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
+Random.rand!(::Random.AbstractRNG, ::MvGaussianGLM{T}, ::AbstractVector) where {T<:Real}
+Random.rand!(::Random.AbstractRNG, ::MvBernoulliGLM, ::AbstractVector)
+Random.rand!(::Random.AbstractRNG, ::MvPoissonGLM, ::AbstractVector)
 ```
