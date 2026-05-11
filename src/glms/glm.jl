@@ -82,33 +82,39 @@ exact MAP solution for a Gaussian prior β ~ N(0, (1/λ)I).
 - `σ2`: noise variance
 - `prior`: regularization prior (default `NoPrior()`)
 """
-mutable struct GaussianGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct GaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     σ2::T
     prior::P
 end
 
-GaussianGLM(β::AbstractVector{T}, σ2::T) where {T<:Real} =
-    GaussianGLM{T, NoPrior}(Vector{T}(β), σ2, NoPrior())
+function GaussianGLM(β::AbstractVector{T}, σ2::T) where {T<:Real}
+    return GaussianGLM{T,NoPrior}(Vector{T}(β), σ2, NoPrior())
+end
 
-GaussianGLM(β::AbstractVector{T}, σ2::T, prior::P) where {T<:Real, P<:AbstractPrior} =
-    GaussianGLM{T, P}(Vector{T}(β), σ2, prior)
+function GaussianGLM(β::AbstractVector{T}, σ2::T, prior::P) where {T<:Real,P<:AbstractPrior}
+    return GaussianGLM{T,P}(Vector{T}(β), σ2, prior)
+end
 
 # Convenience: promote β eltype and σ2 together
-GaussianGLM(β::AbstractVector, σ2::Real) =
-    GaussianGLM(float.(β), float(σ2))
+GaussianGLM(β::AbstractVector, σ2::Real) = GaussianGLM(float.(β), float(σ2))
 
-GaussianGLM(β::AbstractVector, σ2::Real, prior::AbstractPrior) =
-    GaussianGLM(float.(β), float(σ2), prior)
+function GaussianGLM(β::AbstractVector, σ2::Real, prior::AbstractPrior)
+    return GaussianGLM(float.(β), float(σ2), prior)
+end
 
 DensityInterface.DensityKind(::GaussianGLM) = DensityInterface.HasDensity()
 
-function DensityInterface.logdensityof(reg::GaussianGLM, y::Real; control_seq::AbstractVector{<:Real})
+function DensityInterface.logdensityof(
+    reg::GaussianGLM, y::Real; control_seq::AbstractVector{<:Real}
+)
     μ = dot(reg.β, control_seq)
     return -0.5 * log(2π * reg.σ2) - 0.5 * ((y - μ)^2 / reg.σ2)
 end
 
-function Random.rand(rng::AbstractRNG, reg::GaussianGLM; control_seq::AbstractVector{<:Real})
+function Random.rand(
+    rng::AbstractRNG, reg::GaussianGLM; control_seq::AbstractVector{<:Real}
+)
     return rand(rng, Normal(dot(reg.β, control_seq), sqrt(reg.σ2)))
 end
 
@@ -131,21 +137,20 @@ function StatsAPI.fit!(
     wsum = zero(T)
 
     for i in 1:n
-        w  = T(weights[i])
+        w = T(weights[i])
         wsum += w
         x_i = view(control_seq, i, :)
         y_i = T(obs_seq[i])
         for a in 1:p
-            xa  = x_i[a]
+            xa = x_i[a]
             wxa = w * xa
             for b in 1:p
                 XWX[a, b] += wxa * x_i[b]
             end
             XWy[a] += wxa * y_i
         end
-    end
+    end#= RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy. =#
 
-    #= RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy. =#
     neglogprior_hess!(reg.prior, XWX, reg.β)
 
     F = cholesky!(Symmetric(XWX))
@@ -175,8 +180,9 @@ struct _ColumnElementView{T,V<:AbstractVector{<:AbstractVector}} <: AbstractVect
     seq::V
     j::Int
 end
-_ColumnElementView(seq::V, j::Int) where {V<:AbstractVector{<:AbstractVector}} =
-    _ColumnElementView{eltype(eltype(V)), V}(seq, j)
+function _ColumnElementView(seq::V, j::Int) where {V<:AbstractVector{<:AbstractVector}}
+    return _ColumnElementView{eltype(eltype(V)),V}(seq, j)
+end
 Base.size(c::_ColumnElementView) = (length(c.seq),)
 Base.IndexStyle(::Type{<:_ColumnElementView}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(c::_ColumnElementView, i::Integer) = c.seq[i][c.j]
@@ -212,7 +218,7 @@ function _bernoulli_gh!(
     fill!(H, zero(T))
     for i in 1:n
         x_i = view(X, i, :)
-        wi  = T(w[i])
+        wi = T(w[i])
         μ_i = logistic(dot(β, x_i))
         r_i = wi * (μ_i - T(y[i]))
         W_i = wi * μ_i * (one(T) - μ_i)
@@ -261,9 +267,9 @@ function _poisson_gh!(
     fill!(H, zero(T))
     for i in 1:n
         x_i = view(X, i, :)
-        wi  = T(w[i])
+        wi = T(w[i])
         η_i = clamp(dot(β, x_i), T(-500), T(500))
-        eη  = exp(η_i)
+        eη = exp(η_i)
         r_i = wi * (eη - T(y[i]))
         W_i = wi * eη
         for a in 1:p
@@ -298,7 +304,7 @@ function _newton_solve!(
     gtol::Real=1e-8,
     max_backtrack::Int=20,
     ridge::Real=1e-12,
-) where {T<:Real, F1, F2}
+) where {T<:Real,F1,F2}
     p = length(β)
     f_curr = loss(β, y, w, X, prior)
 
@@ -361,8 +367,9 @@ function _fit_bernoulli_glm!(
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n ||
-        throw(DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
@@ -370,9 +377,19 @@ function _fit_bernoulli_glm!(
     H = Matrix{T}(undef, p, p)
     Δ = Vector{T}(undef, p)
     return _newton_solve!(
-        β, g, H, Δ, _bernoulli_loss, _bernoulli_gh!,
-        obs_seq, weight_seq, control_seq, prior;
-        max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+        β,
+        g,
+        H,
+        Δ,
+        _bernoulli_loss,
+        _bernoulli_gh!,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        prior;
+        max_iter=max_iter,
+        gtol=gtol,
+        max_backtrack=max_backtrack,
     )
 end
 
@@ -389,8 +406,9 @@ function _fit_poisson_glm!(
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n ||
-        throw(DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
@@ -398,9 +416,19 @@ function _fit_poisson_glm!(
     H = Matrix{T}(undef, p, p)
     Δ = Vector{T}(undef, p)
     return _newton_solve!(
-        β, g, H, Δ, _poisson_loss, _poisson_gh!,
-        obs_seq, weight_seq, control_seq, prior;
-        max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+        β,
+        g,
+        H,
+        Δ,
+        _poisson_loss,
+        _poisson_gh!,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        prior;
+        max_iter=max_iter,
+        gtol=gtol,
+        max_backtrack=max_backtrack,
     )
 end
 
@@ -418,30 +446,32 @@ to the solver.
 - `β`: coefficient vector (length p)
 - `prior`: regularization prior (default `NoPrior()`)
 """
-mutable struct BernoulliGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct BernoulliGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     prior::P
 end
 
-BernoulliGLM(β::AbstractVector{T}) where {T<:Real} =
-    BernoulliGLM{T, NoPrior}(Vector{T}(β), NoPrior())
+function BernoulliGLM(β::AbstractVector{T}) where {T<:Real}
+    return BernoulliGLM{T,NoPrior}(Vector{T}(β), NoPrior())
+end
 
-BernoulliGLM(β::AbstractVector{T}, prior::P) where {T<:Real, P<:AbstractPrior} =
-    BernoulliGLM{T, P}(Vector{T}(β), prior)
+function BernoulliGLM(β::AbstractVector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+    return BernoulliGLM{T,P}(Vector{T}(β), prior)
+end
 
 DensityInterface.DensityKind(::BernoulliGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
-    glm::BernoulliGLM,
-    y::Integer;
-    control_seq::AbstractVector{<:Real},
+    glm::BernoulliGLM, y::Integer; control_seq::AbstractVector{<:Real}
 )
     (y == 0 || y == 1) || return oftype(dot(glm.β, control_seq), -Inf)
     η = dot(glm.β, control_seq)
     return y == 1 ? -log1pexp(-η) : -log1pexp(η)
 end
 
-function Random.rand(rng::AbstractRNG, glm::BernoulliGLM; control_seq::AbstractVector{<:Real})
+function Random.rand(
+    rng::AbstractRNG, glm::BernoulliGLM; control_seq::AbstractVector{<:Real}
+)
     return rand(rng, Bernoulli(logistic(dot(glm.β, control_seq))))
 end
 
@@ -464,8 +494,14 @@ function StatsAPI.fit!(
     max_backtrack::Int=20,
 )
     _fit_bernoulli_glm!(
-        glm.β, obs_seq, weight_seq, control_seq, glm.prior;
-        max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+        glm.β,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        glm.prior;
+        max_iter=max_iter,
+        gtol=gtol,
+        max_backtrack=max_backtrack,
     )
     return glm
 end
@@ -483,23 +519,23 @@ composes without changes to the solver.
 - `β`: coefficient vector (length p)
 - `prior`: regularization prior (default `NoPrior()`)
 """
-mutable struct PoissonGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct PoissonGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     prior::P
 end
 
-PoissonGLM(β::AbstractVector{T}) where {T<:Real} =
-    PoissonGLM{T, NoPrior}(Vector{T}(β), NoPrior())
+function PoissonGLM(β::AbstractVector{T}) where {T<:Real}
+    return PoissonGLM{T,NoPrior}(Vector{T}(β), NoPrior())
+end
 
-PoissonGLM(β::AbstractVector{T}, prior::P) where {T<:Real, P<:AbstractPrior} =
-    PoissonGLM{T, P}(Vector{T}(β), prior)
+function PoissonGLM(β::AbstractVector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+    return PoissonGLM{T,P}(Vector{T}(β), prior)
+end
 
 DensityInterface.DensityKind(::PoissonGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
-    glm::PoissonGLM,
-    y::Integer;
-    control_seq::AbstractVector{<:Real},
+    glm::PoissonGLM, y::Integer; control_seq::AbstractVector{<:Real}
 )
     y >= 0 || return oftype(dot(glm.β, control_seq), -Inf)
     η = dot(glm.β, control_seq)
@@ -529,8 +565,14 @@ function StatsAPI.fit!(
     max_backtrack::Int=20,
 )
     _fit_poisson_glm!(
-        glm.β, obs_seq, weight_seq, control_seq, glm.prior;
-        max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+        glm.β,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        glm.prior;
+        max_iter=max_iter,
+        gtol=gtol,
+        max_backtrack=max_backtrack,
     )
     return glm
 end
@@ -557,27 +599,26 @@ prior on `B` (Frobenius-norm penalty).
    only returns a wrapper without copying when uplo == 'L'; with the upper-stored
    default, every `.L` access does `copy(factors')`, costing ~k² floats per call. =#
 
-mutable struct MvGaussianGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct MvGaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     B::Matrix{T}
     Σ::Matrix{T}
     prior::P
 
-    Σ_chol::Cholesky{T, Matrix{T}}
+    Σ_chol::Cholesky{T,Matrix{T}}
     logdetΣ::T
     in_dim::Int
     out_dim::Int
 end
 
 function MvGaussianGLM(
-    B::AbstractMatrix{T},
-    Σ::AbstractMatrix{T},
-    prior::P,
-) where {T<:Real, P<:AbstractPrior}
+    B::AbstractMatrix{T}, Σ::AbstractMatrix{T}, prior::P
+) where {T<:Real,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
-    size(Σ) == (k, k) ||
-        throw(DimensionMismatch("Σ must be $(k)×$(k) for B with $(k) columns, got $(size(Σ))"))
+    size(Σ) == (k, k) || throw(
+        DimensionMismatch("Σ must be $(k)×$(k) for B with $(k) columns, got $(size(Σ))")
+    )
 
     Σ_chol = try
         cholesky(Symmetric(Σ, :L))
@@ -585,14 +626,14 @@ function MvGaussianGLM(
         throw(ArgumentError("Σ must be positive definite"))
     end
 
-    return MvGaussianGLM{T, P}(
-        Matrix{T}(B), Matrix{T}(Σ), prior,
-        Σ_chol, logdet(Σ_chol), p, k,
+    return MvGaussianGLM{T,P}(
+        Matrix{T}(B), Matrix{T}(Σ), prior, Σ_chol, logdet(Σ_chol), p, k
     )
 end
 
-MvGaussianGLM(B::AbstractMatrix{T}, Σ::AbstractMatrix{T}) where {T<:Real} =
-    MvGaussianGLM(B, Σ, NoPrior())
+function MvGaussianGLM(B::AbstractMatrix{T}, Σ::AbstractMatrix{T}) where {T<:Real}
+    return MvGaussianGLM(B, Σ, NoPrior())
+end
 
 function MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix)
     T = promote_type(eltype(B), eltype(Σ))
@@ -615,16 +656,15 @@ Log density of `y ∈ ℝᵏ` under the conditional MvNormal model. Allocates on
 length-`k` residual vector per call — thread-safe (matches `Distributions.MvNormal`).
 """
 function DensityInterface.logdensityof(
-    glm::MvGaussianGLM,
-    y::AbstractVector;
-    control_seq::AbstractVector{<:Real},
+    glm::MvGaussianGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
 )
     length(y) == glm.out_dim ||
         throw(DimensionMismatch("y length $(length(y)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     k = glm.out_dim
     p = glm.in_dim
@@ -650,9 +690,7 @@ function DensityInterface.logdensityof(
 end
 
 function Random.rand(
-    rng::AbstractRNG,
-    glm::MvGaussianGLM{T};
-    control_seq::AbstractVector{<:Real},
+    rng::AbstractRNG, glm::MvGaussianGLM{T}; control_seq::AbstractVector{<:Real}
 ) where {T<:Real}
     out = Vector{T}(undef, glm.out_dim)
     rand!(rng, glm, out; control_seq=control_seq)
@@ -677,10 +715,11 @@ function Random.rand!(
 ) where {T<:Real}
     length(out) == glm.out_dim ||
         throw(DimensionMismatch("out length $(length(out)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     k = glm.out_dim
     p = glm.in_dim
@@ -715,8 +754,9 @@ function StatsAPI.fit!(
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n ||
-        throw(DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     p == glm.in_dim ||
         throw(DimensionMismatch("control_seq columns $p ≠ in_dim $(glm.in_dim)"))
 
@@ -724,20 +764,17 @@ function StatsAPI.fit!(
 
     XWX = zeros(T, p, p)
     XWY = zeros(T, p, k)
-    wsum = zero(T)
+    wsum = zero(T)#= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries. =#
 
-    #= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries. =#
     for i in 1:n
         obs_i = obs_seq[i]
         length(obs_i) == k ||
-            throw(DimensionMismatch(
-                "obs_seq[$i] length $(length(obs_i)) ≠ out_dim $k",
-            ))
-        w   = T(weight_seq[i])
+            throw(DimensionMismatch("obs_seq[$i] length $(length(obs_i)) ≠ out_dim $k"))
+        w = T(weight_seq[i])
         wsum += w
         x_i = view(control_seq, i, :)
         for a in 1:p
-            xa  = x_i[a]
+            xa = x_i[a]
             wxa = w * xa
             for b in 1:p
                 XWX[a, b] += wxa * x_i[b]
@@ -770,7 +807,7 @@ function StatsAPI.fit!(
     Σ_new = zeros(T, k, k)
     for i in 1:n
         obs_i = obs_seq[i]
-        w   = T(weight_seq[i])
+        w = T(weight_seq[i])
         x_i = view(control_seq, i, :)
         for j in 1:k
             rj = T(obs_i[j])
@@ -820,40 +857,38 @@ For input x ∈ ℝᵖ the conditional distribution of y ∈ {0,1}ᵏ factorizes
 - `B`: coefficient matrix of size `p × k`
 - `prior`: regularization prior applied per column (default `NoPrior()`)
 """
-mutable struct MvBernoulliGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct MvBernoulliGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     B::Matrix{T}
     prior::P
     in_dim::Int
     out_dim::Int
 end
 
-function MvBernoulliGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real, P<:AbstractPrior}
+function MvBernoulliGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
-    return MvBernoulliGLM{T, P}(Matrix{T}(B), prior, p, k)
+    return MvBernoulliGLM{T,P}(Matrix{T}(B), prior, p, k)
 end
 
 MvBernoulliGLM(B::AbstractMatrix{T}) where {T<:Real} = MvBernoulliGLM(B, NoPrior())
 
 MvBernoulliGLM(B::AbstractMatrix) = MvBernoulliGLM(float.(B), NoPrior())
 
-MvBernoulliGLM(B::AbstractMatrix, prior::AbstractPrior) =
-    MvBernoulliGLM(float.(B), prior)
+MvBernoulliGLM(B::AbstractMatrix, prior::AbstractPrior) = MvBernoulliGLM(float.(B), prior)
 
 DensityInterface.DensityKind(::MvBernoulliGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
-    glm::MvBernoulliGLM,
-    y::AbstractVector;
-    control_seq::AbstractVector{<:Real},
+    glm::MvBernoulliGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
 )
     length(y) == glm.out_dim ||
         throw(DimensionMismatch("y length $(length(y)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
     lp = zero(Tη)
@@ -870,9 +905,7 @@ function DensityInterface.logdensityof(
 end
 
 function Random.rand(
-    rng::AbstractRNG,
-    glm::MvBernoulliGLM;
-    control_seq::AbstractVector{<:Real},
+    rng::AbstractRNG, glm::MvBernoulliGLM; control_seq::AbstractVector{<:Real}
 )
     out = Vector{Int}(undef, glm.out_dim)
     rand!(rng, glm, out; control_seq=control_seq)
@@ -893,10 +926,11 @@ function Random.rand!(
 )
     length(out) == glm.out_dim ||
         throw(DimensionMismatch("out length $(length(out)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     T = eltype(glm.B)
     for j in 1:glm.out_dim
@@ -929,31 +963,41 @@ function StatsAPI.fit!(
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n ||
-        throw(DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     p == glm.in_dim ||
         throw(DimensionMismatch("control_seq columns $p ≠ in_dim $(glm.in_dim)"))
 
     k = glm.out_dim
     for i in 1:n
-        length(obs_seq[i]) == k ||
-            throw(DimensionMismatch(
-                "obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k",
-            ))
+        length(obs_seq[i]) == k || throw(
+            DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
+        )
     end
 
     β_buf = Vector{T}(undef, p)
-    g     = Vector{T}(undef, p)
-    H     = Matrix{T}(undef, p, p)
-    Δ     = Vector{T}(undef, p)
+    g = Vector{T}(undef, p)
+    H = Matrix{T}(undef, p, p)
+    Δ = Vector{T}(undef, p)
 
     for j in 1:k
         yview = _ColumnElementView(obs_seq, j)
         copyto!(β_buf, view(glm.B, :, j))
         _newton_solve!(
-            β_buf, g, H, Δ, _bernoulli_loss, _bernoulli_gh!,
-            yview, weight_seq, control_seq, glm.prior;
-            max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+            β_buf,
+            g,
+            H,
+            Δ,
+            _bernoulli_loss,
+            _bernoulli_gh!,
+            yview,
+            weight_seq,
+            control_seq,
+            glm.prior;
+            max_iter=max_iter,
+            gtol=gtol,
+            max_backtrack=max_backtrack,
         )
         for r in 1:p
             glm.B[r, j] = β_buf[r]
@@ -975,40 +1019,38 @@ For input x ∈ ℝᵖ the conditional distribution of y ∈ ℤ₊ᵏ factorize
 - `B`: coefficient matrix of size `p × k`
 - `prior`: regularization prior applied per column (default `NoPrior()`)
 """
-mutable struct MvPoissonGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+mutable struct MvPoissonGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     B::Matrix{T}
     prior::P
     in_dim::Int
     out_dim::Int
 end
 
-function MvPoissonGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real, P<:AbstractPrior}
+function MvPoissonGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
-    return MvPoissonGLM{T, P}(Matrix{T}(B), prior, p, k)
+    return MvPoissonGLM{T,P}(Matrix{T}(B), prior, p, k)
 end
 
 MvPoissonGLM(B::AbstractMatrix{T}) where {T<:Real} = MvPoissonGLM(B, NoPrior())
 
 MvPoissonGLM(B::AbstractMatrix) = MvPoissonGLM(float.(B), NoPrior())
 
-MvPoissonGLM(B::AbstractMatrix, prior::AbstractPrior) =
-    MvPoissonGLM(float.(B), prior)
+MvPoissonGLM(B::AbstractMatrix, prior::AbstractPrior) = MvPoissonGLM(float.(B), prior)
 
 DensityInterface.DensityKind(::MvPoissonGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
-    glm::MvPoissonGLM,
-    y::AbstractVector;
-    control_seq::AbstractVector{<:Real},
+    glm::MvPoissonGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
 )
     length(y) == glm.out_dim ||
         throw(DimensionMismatch("y length $(length(y)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
     lp = zero(Tη)
@@ -1025,9 +1067,7 @@ function DensityInterface.logdensityof(
 end
 
 function Random.rand(
-    rng::AbstractRNG,
-    glm::MvPoissonGLM;
-    control_seq::AbstractVector{<:Real},
+    rng::AbstractRNG, glm::MvPoissonGLM; control_seq::AbstractVector{<:Real}
 )
     out = Vector{Int}(undef, glm.out_dim)
     rand!(rng, glm, out; control_seq=control_seq)
@@ -1047,10 +1087,11 @@ function Random.rand!(
 )
     length(out) == glm.out_dim ||
         throw(DimensionMismatch("out length $(length(out)) ≠ out_dim $(glm.out_dim)"))
-    length(control_seq) == glm.in_dim ||
-        throw(DimensionMismatch(
-            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)",
-        ))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
 
     T = eltype(glm.B)
     for j in 1:glm.out_dim
@@ -1083,31 +1124,41 @@ function StatsAPI.fit!(
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n ||
-        throw(DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     p == glm.in_dim ||
         throw(DimensionMismatch("control_seq columns $p ≠ in_dim $(glm.in_dim)"))
 
     k = glm.out_dim
     for i in 1:n
-        length(obs_seq[i]) == k ||
-            throw(DimensionMismatch(
-                "obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k",
-            ))
+        length(obs_seq[i]) == k || throw(
+            DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
+        )
     end
 
     β_buf = Vector{T}(undef, p)
-    g     = Vector{T}(undef, p)
-    H     = Matrix{T}(undef, p, p)
-    Δ     = Vector{T}(undef, p)
+    g = Vector{T}(undef, p)
+    H = Matrix{T}(undef, p, p)
+    Δ = Vector{T}(undef, p)
 
     for j in 1:k
         yview = _ColumnElementView(obs_seq, j)
         copyto!(β_buf, view(glm.B, :, j))
         _newton_solve!(
-            β_buf, g, H, Δ, _poisson_loss, _poisson_gh!,
-            yview, weight_seq, control_seq, glm.prior;
-            max_iter=max_iter, gtol=gtol, max_backtrack=max_backtrack,
+            β_buf,
+            g,
+            H,
+            Δ,
+            _poisson_loss,
+            _poisson_gh!,
+            yview,
+            weight_seq,
+            control_seq,
+            glm.prior;
+            max_iter=max_iter,
+            gtol=gtol,
+            max_backtrack=max_backtrack,
         )
         for r in 1:p
             glm.B[r, j] = β_buf[r]

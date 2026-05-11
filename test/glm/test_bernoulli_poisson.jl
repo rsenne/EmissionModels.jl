@@ -6,7 +6,6 @@ using StatsAPI
 using LinearAlgebra
 using Distributions: Bernoulli, Poisson, logpdf
 
-
 function _sigmoid(η)
     return one(η) / (one(η) + exp(-η))
 end
@@ -160,7 +159,9 @@ end
         X = ones(5, 2)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 4), ones(5); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(4); control_seq=X)
-        @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(5); control_seq=ones(5, 3))
+        @test_throws DimensionMismatch fit!(
+            glm, ones(Int, 5), ones(5); control_seq=ones(5, 3)
+        )
     end
 
     @testset "fit! all-zero observations" begin
@@ -176,7 +177,6 @@ end
         @test all(isfinite, glm.β)
     end
 end
-
 
 @testset "PoissonGLM" begin
     rng = Random.MersenneTwister(99)
@@ -255,7 +255,9 @@ end
         X = ones(5, 2)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 4), ones(5); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(4); control_seq=X)
-        @test_throws DimensionMismatch fit!(glm, ones(Int, 5), ones(5); control_seq=ones(5, 3))
+        @test_throws DimensionMismatch fit!(
+            glm, ones(Int, 5), ones(5); control_seq=ones(5, 3)
+        )
     end
 
     @testset "fit! all-zero counts" begin
@@ -277,8 +279,9 @@ function _synthetic_mvbernoulli(rng, n, B_true; weights=:uniform)
     X = hcat(ones(n), randn(rng, n, p - 1))
     obs_seq = Vector{Vector{Int}}(undef, n)
     for i in 1:n
-        obs_seq[i] = Int[rand(rng) < _sigmoid(dot(B_true[:, j], X[i, :])) ? 1 : 0
-                         for j in 1:k]
+        obs_seq[i] = Int[
+            rand(rng) < _sigmoid(dot(B_true[:, j], X[i, :])) ? 1 : 0 for j in 1:k
+        ]
     end
     w = weights === :uniform ? ones(n) : rand(rng, n) .+ 0.5
     return X, obs_seq, w
@@ -406,7 +409,7 @@ end
         X = ones(5, 2)
         good_obs = [zeros(Int, 2) for _ in 1:5]
         @test_throws DimensionMismatch fit!(
-            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X
         )
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))
@@ -521,7 +524,7 @@ end
         X = ones(5, 2)
         good_obs = [zeros(Int, 2) for _ in 1:5]
         @test_throws DimensionMismatch fit!(
-            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X,
+            glm, [zeros(Int, 2) for _ in 1:4], ones(5); control_seq=X
         )
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(4); control_seq=X)
         @test_throws DimensionMismatch fit!(glm, good_obs, ones(5); control_seq=ones(5, 3))

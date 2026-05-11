@@ -314,7 +314,7 @@ function StatsAPI.fit!(
         end
 
         # Symmetrize numerical noise
-        for j in 1:d, k in 1:j-1
+        for j in 1:d, k in 1:(j - 1)
             s = (Σ_acc[j, k] + Σ_acc[k, j]) / 2
             Σ_acc[j, k] = s
             Σ_acc[k, j] = s

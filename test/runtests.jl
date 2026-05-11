@@ -1,13 +1,13 @@
 using EmissionModels
 using Test
 using Aqua
-using JET
-using JuliaFormatter
 using StatsAPI
 
 @testset "EmissionModels.jl" begin
     @testset "Code linting" begin
         if VERSION >= v"1.10" && isempty(VERSION.prerelease)
+            using Pkg
+            Pkg.add("JET")
             JET.test_package(EmissionModels; target_modules=(EmissionModels,))
         else
             @info "Skipping JET on Julia $VERSION (requires >=1.10 and a release build)"
