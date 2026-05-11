@@ -22,72 +22,48 @@ using StatsAPI
   does NOT exist in real loops — measure inside a function.
 =#
 
-bench_logd(d, y, x, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        s += logdensityof(d, y; control_seq=x);
-    end;
-    s
-)
-bench_logd_unctrl(d, y, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        s += logdensityof(d, y);
-    end;
-    s
-)
-bench_rand_scalar(rng, d, x, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        s += rand(rng, d; control_seq=x);
-    end;
-    s
-)
-bench_rand_int(rng, d, x, n) = (
-    s=0;
-    for _ in 1:n
-        ;
-        s += rand(rng, d; control_seq=x);
-    end;
-    s
-)
-bench_rand!_v(rng, d, out, x, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        rand!(rng, d, out; control_seq=x);
-        s += out[1];
-    end;
-    s
-)
-bench_rand!_i(rng, d, out, x, n) = (
-    s=0;
-    for _ in 1:n
-        ;
-        rand!(rng, d, out; control_seq=x);
-        s += out[1];
-    end;
-    s
-)
-bench_rand_unctrl_scalar(rng, d, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        s += rand(rng, d);
-    end;
-    s
-)
-bench_rand_unctrl_vec(rng, d, n) = (
-    s=0.0;
-    for _ in 1:n
-        ;
-        s += rand(rng, d)[1];
-    end;
-    s
-)
+bench_logd(d, y, x, n) = (s = 0.0;
+for _ in 1:n
+    s += logdensityof(d, y; control_seq=x)
+end;
+s)
+bench_logd_unctrl(d, y, n) = (s = 0.0;
+for _ in 1:n
+    s += logdensityof(d, y)
+end;
+s)
+bench_rand_scalar(rng, d, x, n) = (s = 0.0;
+for _ in 1:n
+    s += rand(rng, d; control_seq=x)
+end;
+s)
+bench_rand_int(rng, d, x, n) = (s = 0;
+for _ in 1:n
+    s += rand(rng, d; control_seq=x)
+end;
+s)
+bench_rand!_v(rng, d, out, x, n) = (s = 0.0;
+for _ in 1:n
+    rand!(rng, d, out; control_seq=x)
+    s += out[1]
+end;
+s)
+bench_rand!_i(rng, d, out, x, n) = (s = 0;
+for _ in 1:n
+    rand!(rng, d, out; control_seq=x)
+    s += out[1]
+end;
+s)
+bench_rand_unctrl_scalar(rng, d, n) = (s = 0.0;
+for _ in 1:n
+    s += rand(rng, d)
+end;
+s)
+bench_rand_unctrl_vec(rng, d, n) = (s = 0.0;
+for _ in 1:n
+    s += rand(rng, d)[1]
+end;
+s)
 
 @testset "Allocations (steady state)" begin
     rng = Random.MersenneTwister(0)
@@ -102,15 +78,15 @@ bench_rand_unctrl_vec(rng, d, n) = (
         mg = MvGaussianGLM([0.5 -1.0; 1.0 0.5], [1.0 0.3; 0.3 1.5])
         mb = MvBernoulliGLM([0.5 -1.0; 1.0 0.5])
         mp = MvPoissonGLM([0.5 -1.0; 0.2 0.0])
-        yv = [0.1, 0.2];
+        yv = [0.1, 0.2]
         yi = [0, 1]
 
         # Warm
-        bench_logd(g, 0.5, x, 1);
-        bench_logd(b, 1, x, 1);
+        bench_logd(g, 0.5, x, 1)
+        bench_logd(b, 1, x, 1)
         bench_logd(p, 2, x, 1)
-        bench_logd(mg, yv, x, 1);
-        bench_logd(mb, yi, x, 1);
+        bench_logd(mg, yv, x, 1)
+        bench_logd(mb, yi, x, 1)
         bench_logd(mp, yi, x, 1)
 
         # Truly zero-alloc (no scratch needed)
@@ -161,7 +137,7 @@ bench_rand_unctrl_vec(rng, d, n) = (
 
         # GaussianGLM: closed-form WLS. Workspace: XWX (p²) + XWy (p).
         yg = randn(rng, n)
-        gg = GaussianGLM([0.0, 0.0], 1.0);
+        gg = GaussianGLM([0.0, 0.0], 1.0)
         fit!(gg, yg, w; control_seq=X)
         gg = GaussianGLM([0.0, 0.0], 1.0)
         @test (@allocated fit!(gg, yg, w; control_seq=X)) ≤ 1_000
@@ -177,13 +153,13 @@ bench_rand_unctrl_vec(rng, d, n) = (
         # BernoulliGLM/PoissonGLM: hand-rolled Newton.
         # Workspace: g, H, Δ — three small alloc, total ~300 bytes for p=2.
         yb = Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:n]
-        gb = BernoulliGLM(zeros(2));
+        gb = BernoulliGLM(zeros(2))
         fit!(gb, yb, w; control_seq=X)
         gb = BernoulliGLM(zeros(2))
         @test (@allocated fit!(gb, yb, w; control_seq=X)) ≤ 1_000
 
         yp = Int[rand(rng, 0:5) for _ in 1:n]
-        gp = PoissonGLM(zeros(2));
+        gp = PoissonGLM(zeros(2))
         fit!(gp, yp, w; control_seq=X)
         gp = PoissonGLM(zeros(2))
         @test (@allocated fit!(gp, yp, w; control_seq=X)) ≤ 1_000
@@ -191,13 +167,13 @@ bench_rand_unctrl_vec(rng, d, n) = (
         # Multivariate Newton: workspace shared across columns. _ColumnElementView
         # avoids the n-sized per-column copy that Vector-of-Vectors would force.
         ymb = [Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:2] for _ in 1:n]
-        gmb = MvBernoulliGLM(zeros(2, 2));
+        gmb = MvBernoulliGLM(zeros(2, 2))
         fit!(gmb, ymb, w; control_seq=X)
         gmb = MvBernoulliGLM(zeros(2, 2))
         @test (@allocated fit!(gmb, ymb, w; control_seq=X)) ≤ 1_000
 
         ymp = [Int[rand(rng, 0:3) for _ in 1:2] for _ in 1:n]
-        gmp = MvPoissonGLM(zeros(2, 2));
+        gmp = MvPoissonGLM(zeros(2, 2))
         fit!(gmp, ymp, w; control_seq=X)
         gmp = MvPoissonGLM(zeros(2, 2))
         @test (@allocated fit!(gmp, ymp, w; control_seq=X)) ≤ 1_000
@@ -206,7 +182,7 @@ bench_rand_unctrl_vec(rng, d, n) = (
     @testset "PoissonZeroInflated" begin
         zip = PoissonZeroInflated(3.0, 0.2)
 
-        bench_logd_unctrl(zip, 0, 1);
+        bench_logd_unctrl(zip, 0, 1)
         bench_logd_unctrl(zip, 5, 1)
         @test (@allocated bench_logd_unctrl(zip, 0, REPS)) == 0
         @test (@allocated bench_logd_unctrl(zip, 5, REPS)) == 0
@@ -217,7 +193,7 @@ bench_rand_unctrl_vec(rng, d, n) = (
         n = 500
         y = [rand(rng, zip) for _ in 1:n]
         w = ones(n)
-        zip2 = PoissonZeroInflated(1.0, 0.1);
+        zip2 = PoissonZeroInflated(1.0, 0.1)
         fit!(zip2, y, w)
         zip2 = PoissonZeroInflated(1.0, 0.1)
         @test (@allocated fit!(zip2, y, w)) ≤ 1_000
