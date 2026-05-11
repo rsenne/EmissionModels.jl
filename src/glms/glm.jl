@@ -151,7 +151,7 @@ function StatsAPI.fit!(
         end
     end
 
-    #= RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy. =#
+    # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
     neglogprior_hess!(reg.prior, XWX, reg.β)
 
     F = cholesky!(Symmetric(XWX))
