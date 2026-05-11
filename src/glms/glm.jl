@@ -149,8 +149,9 @@ function StatsAPI.fit!(
             end
             XWy[a] += wxa * y_i
         end
-    end#= RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy. =#
+    end
 
+    #= RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy. =#
     neglogprior_hess!(reg.prior, XWX, reg.β)
 
     F = cholesky!(Symmetric(XWX))
@@ -595,10 +596,6 @@ prior on `B` (Frobenius-norm penalty).
 - `Σ`: residual covariance of size `k × k`
 - `prior`: regularization prior on `B` (default `NoPrior()`)
 """
-#= Cholesky uplo: we always store the LOWER triangle. `getproperty(::Cholesky, :L)`
-   only returns a wrapper without copying when uplo == 'L'; with the upper-stored
-   default, every `.L` access does `copy(factors')`, costing ~k² floats per call. =#
-
 mutable struct MvGaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     B::Matrix{T}
     Σ::Matrix{T}

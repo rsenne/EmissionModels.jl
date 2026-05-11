@@ -71,3 +71,11 @@ glm = GaussianGLM(zeros(5), 1.0, prior)
 ```
 
 The composed prior simply sums the individual penalties, gradients, and Hessians.
+
+## API Reference
+
+```@docs
+AbstractPrior
+NoPrior
+RidgePrior
+```

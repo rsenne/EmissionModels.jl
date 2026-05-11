@@ -1,5 +1,8 @@
 using EmissionModels
 using Documenter
+using DensityInterface
+using Random
+using StatsAPI
 
 DocMeta.setdocmeta!(EmissionModels, :DocTestSetup, :(using EmissionModels); recursive=true)
 

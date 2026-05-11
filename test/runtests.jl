@@ -8,6 +8,7 @@ using StatsAPI
         if VERSION >= v"1.10" && isempty(VERSION.prerelease)
             using Pkg
             Pkg.add("JET")
+            using JET
             JET.test_package(EmissionModels; target_modules=(EmissionModels,))
         else
             @info "Skipping JET on Julia $VERSION (requires >=1.10 and a release build)"
