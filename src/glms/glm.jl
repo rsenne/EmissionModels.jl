@@ -930,7 +930,7 @@ function Random.rand!(
     )
 
     T = eltype(glm.B)
-    for j in 1:glm.out_dim
+    for j in 1:(glm.out_dim)
         η = zero(T)
         for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
