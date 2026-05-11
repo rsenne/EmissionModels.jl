@@ -761,7 +761,7 @@ function StatsAPI.fit!(
 
     XWX = zeros(T, p, p)
     XWY = zeros(T, p, k)
-    wsum = zero(T)#= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries. =#
+    wsum = zero(T) #= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries. =#
 
     for i in 1:n
         obs_i = obs_seq[i]
@@ -889,11 +889,11 @@ function DensityInterface.logdensityof(
 
     Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
     lp = zero(Tη)
-    for j in 1:glm.out_dim
+    for j in 1:(glm.out_dim)
         yj = y[j]
         (yj == 0 || yj == 1) || return Tη(-Inf)
         η = zero(Tη)
-        for r in 1:glm.in_dim
+        for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
         lp += yj == 1 ? -log1pexp(-η) : -log1pexp(η)
@@ -930,9 +930,9 @@ function Random.rand!(
     )
 
     T = eltype(glm.B)
-    for j in 1:glm.out_dim
+    for j in 1:(glm.out_dim)
         η = zero(T)
-        for r in 1:glm.in_dim
+        for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
         out[j] = rand(rng) < logistic(η) ? 1 : 0
@@ -1051,11 +1051,11 @@ function DensityInterface.logdensityof(
 
     Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
     lp = zero(Tη)
-    for j in 1:glm.out_dim
+    for j in 1:(glm.out_dim)
         yj = y[j]
         yj >= 0 || return Tη(-Inf)
         η = zero(Tη)
-        for r in 1:glm.in_dim
+        for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
         lp += yj * η - exp(η) - logfactorial(yj)
@@ -1091,9 +1091,9 @@ function Random.rand!(
     )
 
     T = eltype(glm.B)
-    for j in 1:glm.out_dim
+    for j in 1:(glm.out_dim)
         η = zero(T)
-        for r in 1:glm.in_dim
+        for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
         out[j] = rand(rng, Poisson(exp(η)))

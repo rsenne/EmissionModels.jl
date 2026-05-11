@@ -13,7 +13,7 @@ function _synthetic_gaussian_glm(
     rng, n::Int, p::Int; β::Vector{Float64}, σ2::Float64, weights=:uniform
 )
     @assert length(β) == p
-    X = hcat(ones(n), randn(rng, n, p-1))  # intercept + random features
+    X = hcat(ones(n), randn(rng, n, p - 1))  # intercept + random features
     μ = X * β
     y = rand.(Ref(rng), Normal.(μ, sqrt(σ2)))
     w = if weights === :uniform
@@ -56,7 +56,7 @@ _expected_logpdf(y, μ, σ2) = -0.5 * log(2π * σ2) - 0.5 * ((y - μ)^2 / σ2)
             @test isfinite(logp)
 
             expected = _expected_logpdf(y[i], dot(glm.β, x_i), glm.σ2)
-            @test logp ≈ expected rtol=1e-12 atol=0.0
+            @test logp ≈ expected rtol = 1e-12 atol = 0.0
         end
 
         # Higher density near the mean than far away
@@ -78,11 +78,11 @@ _expected_logpdf(y, μ, σ2) = -0.5 * log(2π * σ2) - 0.5 * ((y - μ)^2 / σ2)
         # Empirical mean should be close to dot(β,x)
         μ = dot(glm.β, x)
         m = mean(samples)
-        @test m ≈ μ atol=0.15
+        @test m ≈ μ atol = 0.15
 
         # Empirical variance should be close to σ2
         v = var(samples)
-        @test v ≈ glm.σ2 atol=0.25
+        @test v ≈ glm.σ2 atol = 0.25
     end
 
     @testset "fit! with uniform weights" begin
@@ -96,8 +96,8 @@ _expected_logpdf(y, μ, σ2) = -0.5 * log(2π * σ2) - 0.5 * ((y - μ)^2 / σ2)
         fit!(glm, y, w; control_seq=X)
 
         # Coefficients should be close with enough data
-        @test glm.β ≈ β_true atol=0.08
-        @test glm.σ2 ≈ σ2_true atol=0.10
+        @test glm.β ≈ β_true atol = 0.08
+        @test glm.σ2 ≈ σ2_true atol = 0.10
 
         @test all(isfinite, glm.β)
         @test isfinite(glm.σ2)
@@ -114,8 +114,8 @@ _expected_logpdf(y, μ, σ2) = -0.5 * log(2π * σ2) - 0.5 * ((y - μ)^2 / σ2)
         glm = GaussianGLM([0.0, 0.0], 1.0)
         fit!(glm, y, w; control_seq=X)
 
-        @test glm.β ≈ β_true atol=0.10
-        @test glm.σ2 ≈ σ2_true atol=0.15
+        @test glm.β ≈ β_true atol = 0.10
+        @test glm.σ2 ≈ σ2_true atol = 0.15
     end
 
     @testset "Constructor with prior" begin
@@ -148,7 +148,7 @@ function _synthetic_mvgaussian_glm(
 )
     @assert size(B) == (p, k)
     @assert size(Σ) == (k, k)
-    X = hcat(ones(n), randn(rng, n, p-1))
+    X = hcat(ones(n), randn(rng, n, p - 1))
     L = cholesky(Σ).L
     obs_seq = Vector{Vector{Float64}}(undef, n)
     for i in 1:n
@@ -205,7 +205,7 @@ end
         # Compare against MvNormal closed form
         diff = y - μ
         expected = -log(2π) - 0.5 * logdet(Σ) - 0.5 * dot(diff, Σ \ diff)
-        @test logdensityof(glm, y; control_seq=x) ≈ expected rtol=1e-10
+        @test logdensityof(glm, y; control_seq=x) ≈ expected rtol = 1e-10
 
         # Higher density at the mean than far from it
         @test logdensityof(glm, μ; control_seq=x) >
@@ -227,10 +227,10 @@ end
 
         μ_true = vec(B' * x)
         m = vec(mean(Y; dims=1))
-        @test m ≈ μ_true atol=0.05
+        @test m ≈ μ_true atol = 0.05
 
         S = (Y .- m')' * (Y .- m') / (n - 1)
-        @test S ≈ Σ atol=0.1
+        @test S ≈ Σ atol = 0.1
     end
 
     @testset "fit! recovers B and Σ" begin
@@ -241,8 +241,8 @@ end
         glm = MvGaussianGLM(zeros(3, 2), Matrix(1.0I, 2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.08
-        @test glm.Σ ≈ Σ_true atol=0.10
+        @test glm.B ≈ B_true atol = 0.08
+        @test glm.Σ ≈ Σ_true atol = 0.10
         @test all(isfinite, glm.B)
         @test all(isfinite, glm.Σ)
         @test isposdef(glm.Σ)
@@ -258,8 +258,8 @@ end
         glm = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         fit!(glm, obs_seq, w; control_seq=X)
 
-        @test glm.B ≈ B_true atol=0.10
-        @test glm.Σ ≈ Σ_true atol=0.12
+        @test glm.B ≈ B_true atol = 0.10
+        @test glm.Σ ≈ Σ_true atol = 0.12
     end
 
     @testset "fit! with RidgePrior shrinks toward zero" begin
