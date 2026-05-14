@@ -22,48 +22,64 @@ using StatsAPI
   does NOT exist in real loops — measure inside a function.
 =#
 
-bench_logd(d, y, x, n) = (s = 0.0;
-for _ in 1:n
-    s += logdensityof(d, y; control_seq=x)
-end;
-s)
-bench_logd_unctrl(d, y, n) = (s = 0.0;
-for _ in 1:n
-    s += logdensityof(d, y)
-end;
-s)
-bench_rand_scalar(rng, d, x, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d; control_seq=x)
-end;
-s)
-bench_rand_int(rng, d, x, n) = (s = 0;
-for _ in 1:n
-    s += rand(rng, d; control_seq=x)
-end;
-s)
-bench_rand!_v(rng, d, out, x, n) = (s = 0.0;
-for _ in 1:n
-    rand!(rng, d, out; control_seq=x)
-    s += out[1]
-end;
-s)
-bench_rand!_i(rng, d, out, x, n) = (s = 0;
-for _ in 1:n
-    rand!(rng, d, out; control_seq=x)
-    s += out[1]
-end;
-s)
-bench_rand_unctrl_scalar(rng, d, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d)
-end;
-s)
-bench_rand_unctrl_vec(rng, d, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d)[1]
-end;
-s)
+bench_logd(d, y, x, n) = (
+    s=0.0;
+    for _ in 1:n
+        s += logdensityof(d, y; control_seq=x)
+    end;
+    s
+)
+bench_logd_unctrl(d, y, n) = (
+    s=0.0;
+    for _ in 1:n
+        s += logdensityof(d, y)
+    end;
+    s
+)
+bench_rand_scalar(rng, d, x, n) = (
+    s=0.0;
+    for _ in 1:n
+        s += rand(rng, d; control_seq=x)
+    end;
+    s
+)
+bench_rand_int(rng, d, x, n) = (
+    s=0;
+    for _ in 1:n
+        s += rand(rng, d; control_seq=x)
+    end;
+    s
+)
+bench_rand!_v(rng, d, out, x, n) = (
+    s=0.0;
+    for _ in 1:n
+        rand!(rng, d, out; control_seq=x)
+        s += out[1]
+    end;
+    s
+)
+bench_rand!_i(rng, d, out, x, n) = (
+    s=0;
+    for _ in 1:n
+        rand!(rng, d, out; control_seq=x)
+        s += out[1]
+    end;
+    s
+)
+bench_rand_unctrl_scalar(rng, d, n) = (
+    s=0.0;
+    for _ in 1:n
+        s += rand(rng, d)
+    end;
+    s
+)
+bench_rand_unctrl_vec(rng, d, n) = (
+    s=0.0;
+    for _ in 1:n
+        s += rand(rng, d)[1]
+    end;
+    s
+)
 
 @testset "Allocations (steady state)" begin
     rng = Random.MersenneTwister(0)

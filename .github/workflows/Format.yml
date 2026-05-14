@@ -2,10 +2,16 @@ name: Formatter
 on:
   schedule:
     - cron: '0 0 * * *'
+
   push:
     branches:
-      - 'main'
-    tags: ['*']
+      - main
+    tags:
+      - '*'
+
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -29,7 +35,7 @@ jobs:
         shell: julia --color=yes {0}
         run: |
           using Pkg
-          Pkg.add("JuliaFormatter")
+          Pkg.add(Pkg.PackageSpec(name = "JuliaFormatter", version = "2"))
           using JuliaFormatter
           format(".")
 
