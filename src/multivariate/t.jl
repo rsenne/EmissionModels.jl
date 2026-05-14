@@ -45,11 +45,8 @@ mutable struct MultivariateT{T<:Real}
         size(Σ) == (dim, dim) ||
             throw(DimensionMismatch("Σ must be $(dim)×$(dim), got $(size(Σ))"))
 
-        Σ_chol = try
-            cholesky(Symmetric(Σ, :L))
-        catch
-            throw(ArgumentError("Σ must be positive definite"))
-        end
+        Σ_chol = cholesky(Symmetric(Σ, :L); check=false)
+        issuccess(Σ_chol) || throw(ArgumentError("Σ must be positive definite"))
 
         logdetΣ = logdet(Σ_chol)
 
@@ -320,14 +317,18 @@ function StatsAPI.fit!(
             Σ_acc[k, j] = s
         end
 
-        # Update Σ and Cholesky, regularizing if needed
-        Σ_chol_new = try
-            cholesky(Symmetric(Σ_acc, :L))
-        catch
-            min_eig = minimum(eigvals(Hermitian(Σ_acc)))
-            Σ_acc .+= (abs(min_eig) + 1e-6) * I
-            cholesky(Symmetric(Σ_acc, :L))
-        end
+        #= Σ_acc is PSD by construction and PD whenever the weighted residuals
+           span ℝᵈ. Failure here means a degenerate observation set (zero
+           variance along some axis) — surface that rather than silently
+           regularizing with an arbitrary eigenvalue shift. =#
+        Σ_chol_new = cholesky(Symmetric(Σ_acc, :L); check=false)
+        issuccess(Σ_chol_new) || throw(
+            ArgumentError(
+                "Σ M-step is not positive definite — observations are " *
+                "degenerate along at least one dimension. Inspect `obs_seq` " *
+                "for collinear or constant components.",
+            ),
+        )
         dist.Σ .= Σ_acc
         dist.Σ_chol = Σ_chol_new
         dist.logdetΣ = logdet(dist.Σ_chol)

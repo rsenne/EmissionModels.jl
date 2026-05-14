@@ -86,30 +86,41 @@ mutable struct GaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     σ2::T
     prior::P
+    function GaussianGLM{T,P}(
+        β::Vector{T}, σ2::T, prior::P
+    ) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(β, σ2, prior)
+    end
 end
 
-function GaussianGLM(β::AbstractVector{T}, σ2::T) where {T<:Real}
-    return GaussianGLM{T,NoPrior}(Vector{T}(β), σ2, NoPrior())
-end
-
-function GaussianGLM(β::AbstractVector{T}, σ2::T, prior::P) where {T<:Real,P<:AbstractPrior}
+function GaussianGLM(
+    β::AbstractVector{T}, σ2::T, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
     return GaussianGLM{T,P}(Vector{T}(β), σ2, prior)
 end
-
-# Convenience: promote β eltype and σ2 together
-GaussianGLM(β::AbstractVector, σ2::Real) = GaussianGLM(float.(β), float(σ2))
+function GaussianGLM(β::AbstractVector{T}, σ2::T) where {T<:AbstractFloat}
+    return GaussianGLM(β, σ2, NoPrior())
+end
 
 function GaussianGLM(β::AbstractVector, σ2::Real, prior::AbstractPrior)
-    return GaussianGLM(float.(β), float(σ2), prior)
+    T = float(promote_type(eltype(β), typeof(σ2)))
+    return GaussianGLM(convert(Vector{T}, β), convert(T, σ2), prior)
 end
+GaussianGLM(β::AbstractVector, σ2::Real) = GaussianGLM(β, σ2, NoPrior())
 
 DensityInterface.DensityKind(::GaussianGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
     reg::GaussianGLM, y::Real; control_seq::AbstractVector{<:Real}
 )
-    μ = dot(reg.β, control_seq)
-    return -0.5 * log(2π * reg.σ2) - 0.5 * ((y - μ)^2 / reg.σ2)
+    T = float(promote_type(eltype(reg.β), typeof(reg.σ2), eltype(control_seq), typeof(y)))
+    μ = zero(T)
+    for i in eachindex(reg.β, control_seq)
+        μ += reg.β[i] * control_seq[i]
+    end
+    σ2 = T(reg.σ2)
+    diff = T(y) - μ
+    return -log(T(2π) * σ2) / 2 - diff * diff / (2 * σ2)
 end
 
 function Random.rand(
@@ -154,7 +165,14 @@ function StatsAPI.fit!(
     # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
     neglogprior_hess!(reg.prior, XWX, reg.β)
 
-    F = cholesky!(Symmetric(XWX))
+    F = cholesky!(Symmetric(XWX); check=false)
+    issuccess(F) || throw(
+        ArgumentError(
+            "XᵀWX is not positive definite — `control_seq` is rank-deficient " *
+            "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
+            "drop collinear columns from `control_seq`.",
+        ),
+    )
     copyto!(reg.β, XWy)
     ldiv!(F, reg.β)
 
@@ -237,6 +255,12 @@ function _bernoulli_gh!(
     return nothing
 end
 
+#= Bound η so that exp(η) stays well below floatmax(T), with a few nats of
+   headroom for the w·exp(η) products that accumulate downstream. Type-aware:
+   ≈707 for Float64, ≈86 for Float32 — replaces the previous arbitrary ±500
+   constant, which was both Float64-only and a magic number. =#
+@inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
+
 function _poisson_loss(
     β::AbstractVector{T},
     y::AbstractVector,
@@ -246,9 +270,10 @@ function _poisson_loss(
 ) where {T<:Real}
     n, _ = size(X)
     nll = zero(T)
+    η_max = _η_bound(T)
     for i in 1:n
         x_i = view(X, i, :)
-        η_i = clamp(dot(β, x_i), T(-500), T(500))
+        η_i = clamp(dot(β, x_i), -η_max, η_max)
         nll += T(w[i]) * (exp(η_i) - T(y[i]) * η_i)
     end
     return nll + neglogprior(prior, β)
@@ -266,10 +291,11 @@ function _poisson_gh!(
     n, p = size(X)
     fill!(g, zero(T))
     fill!(H, zero(T))
+    η_max = _η_bound(T)
     for i in 1:n
         x_i = view(X, i, :)
         wi = T(w[i])
-        η_i = clamp(dot(β, x_i), T(-500), T(500))
+        η_i = clamp(dot(β, x_i), -η_max, η_max)
         eη = exp(η_i)
         r_i = wi * (eη - T(y[i]))
         W_i = wi * eη
@@ -450,23 +476,41 @@ to the solver.
 mutable struct BernoulliGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     prior::P
+
+    function BernoulliGLM{T,P}(β::Vector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(β, prior)
+    end
 end
 
-function BernoulliGLM(β::AbstractVector{T}) where {T<:Real}
-    return BernoulliGLM{T,NoPrior}(Vector{T}(β), NoPrior())
-end
-
-function BernoulliGLM(β::AbstractVector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+function BernoulliGLM(
+    β::AbstractVector{T}, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
     return BernoulliGLM{T,P}(Vector{T}(β), prior)
 end
+function BernoulliGLM(β::AbstractVector{T}) where {T<:AbstractFloat}
+    return BernoulliGLM(β, NoPrior())
+end
+
+#= Promoting fallback for integer / mixed-eltype β (e.g., Vector{Int}). The
+   typed constructor above is restricted to AbstractFloat because the Newton
+   solver allocates `Vector{T}` workspace and cannot use Int. =#
+function BernoulliGLM(β::AbstractVector, prior::AbstractPrior)
+    T = float(eltype(β))
+    return BernoulliGLM(convert(Vector{T}, β), prior)
+end
+BernoulliGLM(β::AbstractVector) = BernoulliGLM(β, NoPrior())
 
 DensityInterface.DensityKind(::BernoulliGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
     glm::BernoulliGLM, y::Integer; control_seq::AbstractVector{<:Real}
 )
-    (y == 0 || y == 1) || return oftype(dot(glm.β, control_seq), -Inf)
-    η = dot(glm.β, control_seq)
+    T = float(promote_type(eltype(glm.β), eltype(control_seq)))
+    (y == 0 || y == 1) || return T(-Inf)
+    η = zero(T)
+    for i in eachindex(glm.β, control_seq)
+        η += glm.β[i] * control_seq[i]
+    end
     return y == 1 ? -log1pexp(-η) : -log1pexp(η)
 end
 
@@ -523,24 +567,39 @@ composes without changes to the solver.
 mutable struct PoissonGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     β::Vector{T}
     prior::P
+
+    function PoissonGLM{T,P}(β::Vector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(β, prior)
+    end
 end
 
-function PoissonGLM(β::AbstractVector{T}) where {T<:Real}
-    return PoissonGLM{T,NoPrior}(Vector{T}(β), NoPrior())
-end
-
-function PoissonGLM(β::AbstractVector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+function PoissonGLM(
+    β::AbstractVector{T}, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
     return PoissonGLM{T,P}(Vector{T}(β), prior)
 end
+function PoissonGLM(β::AbstractVector{T}) where {T<:AbstractFloat}
+    return PoissonGLM(β, NoPrior())
+end
+
+function PoissonGLM(β::AbstractVector, prior::AbstractPrior)
+    T = float(eltype(β))
+    return PoissonGLM(convert(Vector{T}, β), prior)
+end
+PoissonGLM(β::AbstractVector) = PoissonGLM(β, NoPrior())
 
 DensityInterface.DensityKind(::PoissonGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
     glm::PoissonGLM, y::Integer; control_seq::AbstractVector{<:Real}
 )
-    y >= 0 || return oftype(dot(glm.β, control_seq), -Inf)
-    η = dot(glm.β, control_seq)
-    return y * η - exp(η) - logfactorial(y)
+    T = float(promote_type(eltype(glm.β), eltype(control_seq)))
+    y >= 0 || return T(-Inf)
+    η = zero(T)
+    for i in eachindex(glm.β, control_seq)
+        η += glm.β[i] * control_seq[i]
+    end
+    return T(y) * η - exp(η) - T(logfactorial(y))
 end
 
 function Random.rand(rng::AbstractRNG, glm::PoissonGLM; control_seq::AbstractVector{<:Real})
@@ -605,11 +664,23 @@ mutable struct MvGaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     logdetΣ::T
     in_dim::Int
     out_dim::Int
+
+    function MvGaussianGLM{T,P}(
+        B::Matrix{T},
+        Σ::Matrix{T},
+        prior::P,
+        Σ_chol::Cholesky{T,Matrix{T}},
+        logdetΣ::T,
+        in_dim::Int,
+        out_dim::Int,
+    ) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(B, Σ, prior, Σ_chol, logdetΣ, in_dim, out_dim)
+    end
 end
 
 function MvGaussianGLM(
     B::AbstractMatrix{T}, Σ::AbstractMatrix{T}, prior::P
-) where {T<:Real,P<:AbstractPrior}
+) where {T<:AbstractFloat,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
@@ -617,32 +688,26 @@ function MvGaussianGLM(
         DimensionMismatch("Σ must be $(k)×$(k) for B with $(k) columns, got $(size(Σ))")
     )
 
-    Σ_chol = try
-        cholesky(Symmetric(Σ, :L))
-    catch
-        throw(ArgumentError("Σ must be positive definite"))
-    end
+    Σ_chol = cholesky(Symmetric(Σ, :L); check=false)
+    issuccess(Σ_chol) || throw(ArgumentError("Σ must be positive definite"))
 
     return MvGaussianGLM{T,P}(
         Matrix{T}(B), Matrix{T}(Σ), prior, Σ_chol, logdet(Σ_chol), p, k
     )
 end
 
-function MvGaussianGLM(B::AbstractMatrix{T}, Σ::AbstractMatrix{T}) where {T<:Real}
+function MvGaussianGLM(B::AbstractMatrix{T}, Σ::AbstractMatrix{T}) where {T<:AbstractFloat}
     return MvGaussianGLM(B, Σ, NoPrior())
 end
 
-function MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix)
-    T = promote_type(eltype(B), eltype(Σ))
-    Tf = float(T)
-    return MvGaussianGLM(Matrix{Tf}(B), Matrix{Tf}(Σ), NoPrior())
-end
-
+#= Promoting fallback: B and Σ are promoted to a common float eltype. Handles
+   mixed (Float32/Float64) and integer eltypes so user code can write
+   `MvGaussianGLM([1 0; 0 1], [1.0 0; 0 1.0])` without first converting. =#
 function MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix, prior::AbstractPrior)
-    T = promote_type(eltype(B), eltype(Σ))
-    Tf = float(T)
-    return MvGaussianGLM(Matrix{Tf}(B), Matrix{Tf}(Σ), prior)
+    T = float(promote_type(eltype(B), eltype(Σ)))
+    return MvGaussianGLM(convert(Matrix{T}, B), convert(Matrix{T}, Σ), prior)
 end
+MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix) = MvGaussianGLM(B, Σ, NoPrior())
 
 DensityInterface.DensityKind(::MvGaussianGLM) = DensityInterface.HasDensity()
 
@@ -669,11 +734,13 @@ function DensityInterface.logdensityof(
     diff = Vector{T}(undef, k)
 
     #= μ = Bᵀ x and diff = y − μ, fused as a single loop to avoid the
-       Adjoint*Vector temporary that BLAS would otherwise allocate. =#
+       Adjoint*Vector temporary that BLAS would otherwise allocate. The output
+       type is `eltype(B)` — inputs in higher precision are downcast on entry
+       and the residual buffer stays at the struct's float type. =#
     for j in 1:k
         sj = zero(T)
         for r in 1:p
-            sj += glm.B[r, j] * control_seq[r]
+            sj += glm.B[r, j] * T(control_seq[r])
         end
         diff[j] = T(y[j]) - sj
     end
@@ -683,7 +750,7 @@ function DensityInterface.logdensityof(
         mahal² += diff[j] * diff[j]
     end
 
-    return -k / 2 * log(2π) - glm.logdetΣ / 2 - mahal² / 2
+    return -T(k) * log(T(2π)) / 2 - glm.logdetΣ / 2 - mahal² / 2
 end
 
 function Random.rand(
@@ -787,13 +854,17 @@ function StatsAPI.fit!(
        Pass a length-p view so RidgePrior loops over rows of XWX, not p*k. =#
     neglogprior_hess!(glm.prior, XWX, view(glm.B, :, 1))
 
-    F = try
-        cholesky(Symmetric(XWX, :L))
-    catch
-        min_eig = minimum(eigvals(Hermitian(XWX)))
-        XWX .+= (abs(min_eig) + T(1e-6)) * I
-        cholesky(Symmetric(XWX, :L))
-    end
+    #= XᵀWX is PD whenever the (weighted) design matrix has full column rank.
+       Failure here means rank-deficient `control_seq` — surface that as a
+       clear error rather than silently shifting eigenvalues. =#
+    F = cholesky!(Symmetric(XWX, :L); check=false)
+    issuccess(F) || throw(
+        ArgumentError(
+            "XᵀWX is not positive definite — `control_seq` is rank-deficient " *
+            "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
+            "drop collinear columns from `control_seq`.",
+        ),
+    )
     copyto!(glm.B, XWY)
     ldiv!(F, glm.B)
 
@@ -826,13 +897,17 @@ function StatsAPI.fit!(
     end
     Σ_new ./= wsum
 
-    Σ_chol_new = try
-        cholesky(Symmetric(Σ_new, :L))
-    catch
-        min_eig = minimum(eigvals(Hermitian(Σ_new)))
-        Σ_new .+= (abs(min_eig) + T(1e-6)) * I
-        cholesky(Symmetric(Σ_new, :L))
-    end
+    #= Σ_new is Σwᵢ·rᵢrᵢᵀ / Σwᵢ, which is PSD by construction and PD whenever
+       the residuals span ℝᵏ. Failure means a degenerate output dimension
+       (zero variance) — error rather than silently regularize. =#
+    Σ_chol_new = cholesky(Symmetric(Σ_new, :L); check=false)
+    issuccess(Σ_chol_new) || throw(
+        ArgumentError(
+            "Residual covariance Σ is not positive definite — at least one " *
+            "output dimension has zero (or perfectly collinear) residual " *
+            "variance. Check `obs_seq` for degenerate output columns.",
+        ),
+    )
 
     copyto!(glm.Σ, Σ_new)
     glm.Σ_chol = Σ_chol_new
@@ -859,20 +934,31 @@ mutable struct MvBernoulliGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     prior::P
     in_dim::Int
     out_dim::Int
+
+    function MvBernoulliGLM{T,P}(
+        B::Matrix{T}, prior::P, in_dim::Int, out_dim::Int
+    ) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(B, prior, in_dim, out_dim)
+    end
 end
 
-function MvBernoulliGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+function MvBernoulliGLM(
+    B::AbstractMatrix{T}, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
     return MvBernoulliGLM{T,P}(Matrix{T}(B), prior, p, k)
 end
+function MvBernoulliGLM(B::AbstractMatrix{T}) where {T<:AbstractFloat}
+    return MvBernoulliGLM(B, NoPrior())
+end
 
-MvBernoulliGLM(B::AbstractMatrix{T}) where {T<:Real} = MvBernoulliGLM(B, NoPrior())
-
-MvBernoulliGLM(B::AbstractMatrix) = MvBernoulliGLM(float.(B), NoPrior())
-
-MvBernoulliGLM(B::AbstractMatrix, prior::AbstractPrior) = MvBernoulliGLM(float.(B), prior)
+function MvBernoulliGLM(B::AbstractMatrix, prior::AbstractPrior)
+    T = float(eltype(B))
+    return MvBernoulliGLM(convert(Matrix{T}, B), prior)
+end
+MvBernoulliGLM(B::AbstractMatrix) = MvBernoulliGLM(B, NoPrior())
 
 DensityInterface.DensityKind(::MvBernoulliGLM) = DensityInterface.HasDensity()
 
@@ -1021,20 +1107,31 @@ mutable struct MvPoissonGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     prior::P
     in_dim::Int
     out_dim::Int
+
+    function MvPoissonGLM{T,P}(
+        B::Matrix{T}, prior::P, in_dim::Int, out_dim::Int
+    ) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(B, prior, in_dim, out_dim)
+    end
 end
 
-function MvPoissonGLM(B::AbstractMatrix{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+function MvPoissonGLM(
+    B::AbstractMatrix{T}, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
     p, k = size(B)
     p > 0 || throw(ArgumentError("B must have at least one row"))
     k > 0 || throw(ArgumentError("B must have at least one column"))
     return MvPoissonGLM{T,P}(Matrix{T}(B), prior, p, k)
 end
+function MvPoissonGLM(B::AbstractMatrix{T}) where {T<:AbstractFloat}
+    return MvPoissonGLM(B, NoPrior())
+end
 
-MvPoissonGLM(B::AbstractMatrix{T}) where {T<:Real} = MvPoissonGLM(B, NoPrior())
-
-MvPoissonGLM(B::AbstractMatrix) = MvPoissonGLM(float.(B), NoPrior())
-
-MvPoissonGLM(B::AbstractMatrix, prior::AbstractPrior) = MvPoissonGLM(float.(B), prior)
+function MvPoissonGLM(B::AbstractMatrix, prior::AbstractPrior)
+    T = float(eltype(B))
+    return MvPoissonGLM(convert(Matrix{T}, B), prior)
+end
+MvPoissonGLM(B::AbstractMatrix) = MvPoissonGLM(B, NoPrior())
 
 DensityInterface.DensityKind(::MvPoissonGLM) = DensityInterface.HasDensity()
 
@@ -1058,7 +1155,7 @@ function DensityInterface.logdensityof(
         for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
-        lp += yj * η - exp(η) - logfactorial(yj)
+        lp += Tη(yj) * η - exp(η) - Tη(logfactorial(yj))
     end
     return lp
 end
