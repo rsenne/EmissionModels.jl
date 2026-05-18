@@ -1,3 +1,5 @@
 [deps]
+DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 EmissionModels = "1e2dd27c-41a5-43b2-863c-3eddd0c72c67"
+StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
