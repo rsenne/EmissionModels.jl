@@ -122,6 +122,11 @@ end
 
     # Unsupported emission ⇒ clear error.
     @test_throws ArgumentError EmissionModels._emission_to_driver(missing, 1.0)
+
+    # Unsupported model ⇒ stochastic_drivers fallback errors (also via the
+    # component_discrepancies path, which forwards to stochastic_drivers).
+    @test_throws ArgumentError stochastic_drivers(missing, [1.0, 2.0])
+    @test_throws ArgumentError component_discrepancies(missing, [1.0, 2.0], KSDiscrepancy())
 end
 
 @testset "HMM adapter argument validation" begin
