@@ -101,3 +101,37 @@ end
     mres = component_discrepancies(mv, mobs, KSDiscrepancy())
     @test all(<(0.1), mres.component_discrepancies)
 end
+
+@testset "Discrepancy edge cases" begin
+    rng = Random.MersenneTwister(123)
+
+    # KL with too few samples (N < k+1) ⇒ Inf.
+    @test compute_discrepancy(KLDiscrepancy(; k_neighbors=5), rand(rng, 2, 3)) == Inf
+
+    # Multivariate paths: SquaredError cross-covariance loop, sliced Wasserstein.
+    U3 = rand(rng, 3, 1500)
+    @test compute_discrepancy(SquaredErrorDiscrepancy(), U3) < 1e-2
+    @test compute_discrepancy(WassersteinDiscrepancy(), U3) < 0.1
+
+    # MMD block-averaging path (N > block_size).
+    @test compute_discrepancy(MMDDiscrepancy(; block_size=200), rand(rng, 2, 600)) < 0.05
+
+    # Type stability through a parametric discrepancy.
+    @test compute_discrepancy(KSDiscrepancy{Float32}(), rand(rng, Float32, 1, 200)) isa
+        Float32
+
+    # Unsupported emission ⇒ clear error.
+    @test_throws ArgumentError EmissionModels._emission_to_driver(missing, 1.0)
+end
+
+@testset "HMM adapter argument validation" begin
+    rng = Random.MersenneTwister(5)
+    hmm = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Normal(0.0, 1.0), Normal(5.0, 1.0)])
+    _, obs_seq = rand(rng, hmm, 100)
+
+    @test_throws ArgumentError stochastic_drivers(hmm, obs_seq; n_samples=0)
+
+    # n_samples > 1 multiplies the pool size (one assignment per step per pass).
+    sd = stochastic_drivers(hmm, obs_seq; n_samples=2)
+    @test sum(size.(sd.ε_pools, 2)) == 200
+end

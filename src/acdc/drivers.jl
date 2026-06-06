@@ -1,32 +1,25 @@
-"""
-Stochastic-driver recovery for individual emission distributions.
+#= Stochastic-driver recovery for individual emission distributions.
 
-Given an emission distribution and an observation, `_emission_to_driver` returns
-the driver vector ``\\varepsilon \\in [0,1]^D`` via the probability integral
-transform (PIT):
+   Given an emission distribution and an observation, `_emission_to_driver`
+   returns the driver vector ε ∈ [0,1]^D via the probability integral transform
+   (PIT):
+   - continuous univariate: ε = F(x);
+   - discrete univariate: randomized PIT, ε ~ U(F(x⁻), F(x)), exactly uniform
+     under the true model;
+   - MvNormal: the Rosenblatt transform, which for a Gaussian reduces to
+     whitening the residual with the Cholesky factor and pushing each coordinate
+     through Φ.
 
-- continuous univariate: ``\\varepsilon = F(x)``;
-- discrete univariate: randomized PIT, ``\\varepsilon \\sim U(F(x^-), F(x))``, which
-  is exactly uniform under the true model;
-- `MvNormal`: the Rosenblatt transform, which for a Gaussian reduces to whitening
-  the residual with the Cholesky factor and pushing each coordinate through
-  ``\\Phi``.
-
-These methods dispatch on `Distributions` types, so ACDC works with any
-HiddenMarkovModels.jl HMM whose emissions are standard distributions. To support
-a custom emission type, add a `_emission_to_driver(dist, obs)` method returning a
-`Vector` of drivers in ``[0,1]``.
-"""
+   These methods dispatch on `Distributions` types, so ACDC works with any
+   HiddenMarkovModels.jl HMM whose emissions are standard distributions. To
+   support a custom emission type, add a `_emission_to_driver(dist, obs)` method
+   returning a `Vector` of drivers in [0,1]. =#
 
 # Clamp a PIT value strictly inside (0,1); the discrepancy measures map drivers
 # through the probit transform, which is ±Inf at the boundary.
 _clamp01(u::T) where {T<:Real} = clamp(u, eps(T), one(T) - eps(T))
 
-"""
-    _sample_categorical(p::AbstractVector) -> Int
-
-Draw a category index from probability vector `p` (assumed to sum to ≈1).
-"""
+# Draw a category index from probability vector `p` (assumed to sum to ≈1).
 function _sample_categorical(p::AbstractVector{T}) where {T<:Real}
     u = rand(T)
     cumsum_p = zero(T)
@@ -37,12 +30,8 @@ function _sample_categorical(p::AbstractVector{T}) where {T<:Real}
     return lastindex(p)
 end
 
-"""
-    _emission_to_driver(dist, obs) -> Vector{Float64}
-
-Recover the stochastic drivers for a single observation under emission `dist`.
-Returns a length-`D` vector of values in ``(0,1)``.
-"""
+# Recover the stochastic drivers for a single observation under emission `dist`.
+# Returns a length-`D` vector of values in (0,1).
 function _emission_to_driver end
 
 # Continuous univariate: standard PIT through the CDF.

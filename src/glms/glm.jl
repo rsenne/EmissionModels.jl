@@ -828,8 +828,9 @@ function StatsAPI.fit!(
 
     XWX = zeros(T, p, p)
     XWY = zeros(T, p, k)
-    wsum = zero(T)#= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries. =#
+    wsum = zero(T)
 
+    # Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries.
     for i in 1:n
         obs_i = obs_seq[i]
         length(obs_i) == k ||

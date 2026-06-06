@@ -400,12 +400,8 @@ function get_critical_rho_values(results::Vector{ACDCResult{T}}) where {T<:Real}
     return unique(sort(all_discs))
 end
 
-"""
-    _mean_log_pdf_knn_multivariate(samples::AbstractMatrix, k::Int) -> Real
-
-Estimate ``\\mathbb{E}_P[\\log p(x)]`` via the Kozachenko-Leonenko k-NN estimator
-with KDTree acceleration.
-"""
+# Estimate E_P[log p(x)] via the Kozachenko-Leonenko k-NN estimator with KDTree
+# acceleration.
 function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) where {T<:Real}
     D, N = size(samples)
 
@@ -424,12 +420,8 @@ function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) wher
     return sum_log_p / N
 end
 
-"""
-    _compute_mmd_quadratic_unbiased(X, Y, sigma) -> Real
-
-Unbiased U-statistic ``\\text{MMD}^2`` between `D × N` matrices `X` and `Y` with a
-Gaussian RBF kernel ``k(x,y) = \\exp(-\\|x-y\\|^2 / (2\\sigma^2))``. ``O(N^2)``.
-"""
+# Unbiased U-statistic MMD² between D × N matrices X and Y with a Gaussian RBF
+# kernel k(x,y) = exp(-‖x-y‖² / (2σ²)). O(N²).
 function _compute_mmd_quadratic_unbiased(
     X::AbstractMatrix{T}, Y::AbstractMatrix{T}, sigma::T
 ) where {T<:Real}
