@@ -58,7 +58,7 @@ function EmissionModels.stochastic_drivers(
     # Driver dimension from a probe on the first observation's sampled-state-able
     # emission (all states share the emission dimension in an HMM).
     probe = EmissionModels._emission_to_driver(
-        obs_distributions(hmm, control_seq[1])[1], obs_seq[1]
+        obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
     )
     D = length(probe)
     Tε = eltype(probe)
@@ -68,7 +68,10 @@ function EmissionModels.stochastic_drivers(
         for t in 1:T_len
             z = EmissionModels._sample_categorical(view(γ, :, t))
             dist = obs_distributions(hmm, control_seq[t])[z]
-            push!(ε_lists[z], EmissionModels._emission_to_driver(dist, obs_seq[t]))
+            push!(
+                ε_lists[z],
+                EmissionModels._emission_to_driver(dist, obs_seq[t], control_seq[t]),
+            )
         end
     end
 

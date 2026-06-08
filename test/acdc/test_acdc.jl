@@ -3,6 +3,7 @@ using HiddenMarkovModels
 using Distributions
 using LinearAlgebra
 using Random
+using Statistics
 using Test
 
 @testset "Discrepancy measures on (non)uniform samples" begin
@@ -100,6 +101,86 @@ end
     @test all(p -> size(p, 1) == 2, sd.ε_pools)          # bivariate ⇒ D=2
     mres = component_discrepancies(mv, mobs, KSDiscrepancy())
     @test all(<(0.1), mres.component_discrepancies)
+end
+
+@testset "Driver recovery for PoissonZeroInflated and MultivariateT" begin
+    rng = Random.MersenneTwister(2024)
+    EM = EmissionModels
+
+    # ZIP: randomized PIT drivers are ~U(0,1) under the true model.
+    zip = PoissonZeroInflated(3.0, 0.25)
+    zeps = [EM._emission_to_driver(zip, rand(rng, zip))[1] for _ in 1:40_000]
+    @test all(0 .<= zeps .<= 1)
+    @test isapprox(Statistics.mean(zeps), 0.5; atol=0.02)
+    @test isapprox(Statistics.var(zeps), 1 / 12; atol=0.01)
+    @test compute_discrepancy(KSDiscrepancy(), reshape(zeps, 1, :)) < 0.05
+
+    Σ = [1.0 0.5 0.2; 0.5 2.0 0.3; 0.2 0.3 1.5]
+    mvt = MultivariateT([1.0, -2.0, 0.5], Σ, 6.0)
+    E = reduce(hcat, (EM._emission_to_driver(mvt, rand(rng, mvt)) for _ in 1:40_000))
+    @test size(E, 1) == 3
+    @test all(0 .<= E .<= 1)
+    @test all(isapprox.(vec(Statistics.mean(E; dims=2)), 0.5; atol=0.02))
+    @test compute_discrepancy(KSDiscrepancy(), E) < 0.05
+    @test abs(Statistics.cov(E[1, :], E[2, :])) < 0.01   # independence, not just uniform marginals
+    @test abs(Statistics.cov(E[1, :], E[3, :])) < 0.01
+
+    # Diagonal scale variant.
+    mvtd = MultivariateTDiag([0.0, 1.0], [1.0, 3.0], 4.0)
+    Ed = reduce(hcat, (EM._emission_to_driver(mvtd, rand(rng, mvtd)) for _ in 1:40_000))
+    @test all(0 .<= Ed .<= 1)
+    @test compute_discrepancy(KSDiscrepancy(), Ed) < 0.05
+    @test abs(Statistics.cov(Ed[1, :], Ed[2, :])) < 0.01
+end
+
+@testset "Driver recovery for GLM emissions (conditional PIT)" begin
+    rng = Random.MersenneTwister(99)
+    EM = EmissionModels
+    N = 40_000
+    mkx() = [1.0, randn(rng), randn(rng)]   # intercept + two covariates
+
+    # Univariate GLMs: reduced to Normal / Bernoulli / Poisson, then PIT.
+    for g in (
+        GaussianGLM([0.5, 1.0, -0.7], 2.0),
+        BernoulliGLM([0.2, 1.5, -1.0]),
+        PoissonGLM([0.3, 0.8, -0.4]),
+    )
+        e = Float64[]
+        for _ in 1:N
+            x = mkx()
+            push!(e, EM._emission_to_driver(g, rand(rng, g; control_seq=x), x)[1])
+        end
+        @test all(0 .<= e .<= 1)
+        @test isapprox(Statistics.mean(e), 0.5; atol=0.02)
+        @test compute_discrepancy(KSDiscrepancy(), reshape(e, 1, :)) < 0.05
+    end
+
+    # MvGaussianGLM
+    mg = MvGaussianGLM([0.5 -0.3; 1.0 0.2; -0.6 0.7], [1.0 0.6; 0.6 1.5])
+    Eg = Matrix{Float64}(undef, 2, N)
+    for i in 1:N
+        x = mkx()
+        Eg[:, i] = EM._emission_to_driver(mg, rand(rng, mg; control_seq=x), x)
+    end
+    @test compute_discrepancy(KSDiscrepancy(), Eg) < 0.05
+    @test abs(Statistics.cov(Eg[1, :], Eg[2, :])) < 0.01
+
+    # Independent-by-column multivariate GLMs: stacked per-column PITs.
+    mb = MvBernoulliGLM([0.1 -0.2; 1.0 0.5; -0.8 0.3])
+    mp = MvPoissonGLM([0.2 0.1; 0.6 -0.3; -0.4 0.5])
+    for g in (mb, mp)
+        E = Matrix{Float64}(undef, 2, N)
+        for i in 1:N
+            x = mkx()
+            E[:, i] = EM._emission_to_driver(g, rand(rng, g; control_seq=x), x)
+        end
+        @test all(0 .<= E .<= 1)
+        @test compute_discrepancy(KSDiscrepancy(), E) < 0.05
+        @test abs(Statistics.cov(E[1, :], E[2, :])) < 0.01
+    end
+
+    # 2-arg form on a GLM ⇒ clear error (covariate required).
+    @test_throws ArgumentError EM._emission_to_driver(GaussianGLM([0.5], 1.0), 1.0)
 end
 
 @testset "Discrepancy edge cases" begin

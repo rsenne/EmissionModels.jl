@@ -1,6 +1,6 @@
 module EmissionModels
 
-using Distributions: Normal, Bernoulli, Poisson, Chisq
+using Distributions: Normal, Bernoulli, Poisson, Chisq, TDist, MvNormal
 using Distributions: cdf, quantile
 using Distributions:
     ContinuousUnivariateDistribution, DiscreteUnivariateDistribution, AbstractMvNormal
