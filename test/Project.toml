@@ -10,3 +10,6 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[compat]
+HiddenMarkovModels = "0.7.1"
