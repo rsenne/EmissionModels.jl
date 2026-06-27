@@ -196,7 +196,7 @@ include("../hmm_utils.jl")
         @test all(dist -> dist isa PoissonZeroInflated, hmm.dists)
 
         # Verify transition matrix is stochastic
-        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
         # Generate observations from the HMM
