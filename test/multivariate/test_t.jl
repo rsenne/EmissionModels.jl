@@ -96,7 +96,7 @@ include("../hmm_utils.jl")
         sample_matrix = hcat(samples...)'
 
         # Check empirical mean (should be close to μ for ν > 1)
-        empirical_mean = vec(mean(sample_matrix, dims=1))
+        empirical_mean = vec(mean(sample_matrix; dims=1))
         @test empirical_mean ≈ μ atol = 0.2
 
         # Check empirical covariance (should be close to Σ * ν/(ν-2) for ν > 2)
@@ -252,7 +252,7 @@ include("../hmm_utils.jl")
         @test all(dist -> dist.dim == 2, hmm.dists)
 
         # Verify transition matrix is stochastic
-        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
         # Generate observations from the HMM
@@ -361,12 +361,12 @@ end
         sample_matrix = hcat(samples...)'
 
         # Check empirical mean
-        empirical_mean = vec(mean(sample_matrix, dims=1))
+        empirical_mean = vec(mean(sample_matrix; dims=1))
         @test empirical_mean ≈ μ atol = 0.2
 
         # Check empirical variances (diagonal only)
         expected_var = σ² * (ν / (ν - 2))
-        empirical_var = vec(var(sample_matrix, dims=1))
+        empirical_var = vec(var(sample_matrix; dims=1))
         @test isapprox(empirical_var, expected_var, atol=0.5)
     end
 
@@ -512,7 +512,7 @@ end
         @test all(dist -> dist.dim == 2, hmm.dists)
 
         # Verify transition matrix is stochastic
-        @test all(sum(hmm.trans, dims=2) .≈ 1.0)
+        @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
         # Generate observations from the HMM

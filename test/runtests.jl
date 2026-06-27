@@ -2,8 +2,12 @@ using EmissionModels
 using Test
 using Aqua
 using StatsAPI
+using JuliaFormatter
 
 @testset "EmissionModels.jl" begin
+    @testset "Code Formatting" begin
+        @test JuliaFormatter.format(EmissionModels; verbose=false, overwrite=false)
+    end
     @testset "Code linting" begin
         if isempty(VERSION.prerelease)
             using Pkg
