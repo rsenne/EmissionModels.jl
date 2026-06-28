@@ -1,20 +1,26 @@
 """
-    AbstractGLM
+    AbstractGLM <: HiddenMarkovModels.ControlledEmission
 
 Abstract type for Generalized Linear Model emission distributions.
 
-GLM subtypes should implement the HiddenMarkovModels.jl interface:
-- `DensityInterface.DensityKind(::YourGLM)` → `HasDensity()`
+Subtyping `ControlledEmission` lets a `Vector` of GLMs serve as the `dists` of a
+`HiddenMarkovModels.ControlledEmissionHMM`. Each concrete GLM implements the
+keyword (`control_seq`) interface internally:
 - `DensityInterface.logdensityof(glm, obs; control_seq)` — log density
 - `Random.rand(rng, glm; control_seq)` — conditional sample
 - `StatsAPI.fit!(glm, obs_seq, weight_seq; control_seq)` — weighted in-place update
+
+and the `ControlledEmission` positional signatures HMM expects — `logdensityof(glm,
+obs, control)`, `rand(rng, glm, control)`, `fit!(glm, obs_seq, control_seq, weights)`
+— are provided as thin adapters at the bottom of this file. `DensityKind` is
+inherited from `ControlledEmission`.
 
 Univariate types (`GaussianGLM`, `BernoulliGLM`, `PoissonGLM`) carry a coefficient
 vector `β` and emit scalar observations. Multivariate variants (`MvGaussianGLM`,
 `MvBernoulliGLM`, `MvPoissonGLM`) carry a coefficient matrix `B` of size `p × k`
 and emit length-`k` observation vectors.
 """
-abstract type AbstractGLM end
+abstract type AbstractGLM <: ControlledEmission end
 
 """
     AbstractPrior
@@ -107,8 +113,6 @@ function GaussianGLM(β::AbstractVector, σ2::Real, prior::AbstractPrior)
     return GaussianGLM(convert(Vector{T}, β), convert(T, σ2), prior)
 end
 GaussianGLM(β::AbstractVector, σ2::Real) = GaussianGLM(β, σ2, NoPrior())
-
-DensityInterface.DensityKind(::GaussianGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
     reg::GaussianGLM, y::Real; control_seq::AbstractVector{<:Real}
@@ -500,8 +504,6 @@ function BernoulliGLM(β::AbstractVector, prior::AbstractPrior)
 end
 BernoulliGLM(β::AbstractVector) = BernoulliGLM(β, NoPrior())
 
-DensityInterface.DensityKind(::BernoulliGLM) = DensityInterface.HasDensity()
-
 function DensityInterface.logdensityof(
     glm::BernoulliGLM, y::Integer; control_seq::AbstractVector{<:Real}
 )
@@ -587,8 +589,6 @@ function PoissonGLM(β::AbstractVector, prior::AbstractPrior)
     return PoissonGLM(convert(Vector{T}, β), prior)
 end
 PoissonGLM(β::AbstractVector) = PoissonGLM(β, NoPrior())
-
-DensityInterface.DensityKind(::PoissonGLM) = DensityInterface.HasDensity()
 
 function DensityInterface.logdensityof(
     glm::PoissonGLM, y::Integer; control_seq::AbstractVector{<:Real}
@@ -708,8 +708,6 @@ function MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix, prior::AbstractPri
     return MvGaussianGLM(convert(Matrix{T}, B), convert(Matrix{T}, Σ), prior)
 end
 MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix) = MvGaussianGLM(B, Σ, NoPrior())
-
-DensityInterface.DensityKind(::MvGaussianGLM) = DensityInterface.HasDensity()
 
 """
     logdensityof(glm::MvGaussianGLM, y::AbstractVector; control_seq)
@@ -961,8 +959,6 @@ function MvBernoulliGLM(B::AbstractMatrix, prior::AbstractPrior)
 end
 MvBernoulliGLM(B::AbstractMatrix) = MvBernoulliGLM(B, NoPrior())
 
-DensityInterface.DensityKind(::MvBernoulliGLM) = DensityInterface.HasDensity()
-
 function DensityInterface.logdensityof(
     glm::MvBernoulliGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
 )
@@ -1134,8 +1130,6 @@ function MvPoissonGLM(B::AbstractMatrix, prior::AbstractPrior)
 end
 MvPoissonGLM(B::AbstractMatrix) = MvPoissonGLM(B, NoPrior())
 
-DensityInterface.DensityKind(::MvPoissonGLM) = DensityInterface.HasDensity()
-
 function DensityInterface.logdensityof(
     glm::MvPoissonGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
 )
@@ -1260,4 +1254,55 @@ function StatsAPI.fit!(
         end
     end
     return glm
+end
+
+#= ─── HiddenMarkovModels.ControlledEmission interface ───────────────────────
+   `AbstractGLM <: ControlledEmission`, so a `Vector` of GLMs is a valid `dists`
+   for a `ControlledEmissionHMM`. That HMM drives each emission through the
+   control-aware *positional* signatures below; each `control` is a single
+   timestep's covariate vector — exactly the `control_seq` argument the keyword
+   methods above already consume — and the fit-time `control_seq` is a vector of
+   such vectors (one per timestep). The adapters delegate to the keyword
+   implementations so the actual math has a single source of truth. =#
+
+# Length of one covariate vector for this GLM (the GLM's input dimension `p`).
+_indim(glm::Union{GaussianGLM,BernoulliGLM,PoissonGLM}) = length(glm.β)
+_indim(glm::Union{MvGaussianGLM,MvBernoulliGLM,MvPoissonGLM}) = glm.in_dim
+
+function DensityInterface.logdensityof(
+    glm::AbstractGLM, obs, control::AbstractVector{<:Real}
+)
+    return logdensityof(glm, obs; control_seq=control)
+end
+
+function Random.rand(rng::AbstractRNG, glm::AbstractGLM, control::AbstractVector{<:Real})
+    return rand(rng, glm; control_seq=control)
+end
+
+#= Zero-copy `n×p` design matrix over a length-`n` vector of length-`p` covariate
+   vectors. `ControlledEmissionHMM` hands `fit!` a `control_seq` shaped as a
+   `Vector{<:AbstractVector}` (one covariate vector per timestep), whereas the
+   matrix-based keyword `fit!` implementations want an `n×p` matrix. This presents
+   the former as the latter without copying: `view(M, i, :)` returns the i-th
+   covariate vector directly, so the existing inner loops stay allocation-free. =#
+struct _ControlRowsMatrix{T,V<:AbstractVector{<:AbstractVector}} <: AbstractMatrix{T}
+    rows::V
+    p::Int
+end
+function _ControlRowsMatrix(rows::V, p::Int) where {V<:AbstractVector{<:AbstractVector}}
+    return _ControlRowsMatrix{eltype(eltype(V)),V}(rows, p)
+end
+Base.size(M::_ControlRowsMatrix) = (length(M.rows), M.p)
+Base.@propagate_inbounds Base.getindex(M::_ControlRowsMatrix, i::Int, j::Int) = M.rows[i][j]
+Base.@propagate_inbounds Base.view(M::_ControlRowsMatrix, i::Integer, ::Colon) = M.rows[i]
+
+function StatsAPI.fit!(
+    glm::AbstractGLM,
+    obs_seq::AbstractVector,
+    control_seq::AbstractVector{<:AbstractVector},
+    weights::AbstractVector{<:Real};
+    kwargs...,
+)
+    X = _ControlRowsMatrix(control_seq, _indim(glm))
+    return fit!(glm, obs_seq, weights; control_seq=X, kwargs...)
 end

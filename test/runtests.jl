@@ -2,8 +2,12 @@ using EmissionModels
 using Test
 using Aqua
 using StatsAPI
+using JuliaFormatter
 
 @testset "EmissionModels.jl" begin
+    @testset "Code Formatting" begin
+        @test JuliaFormatter.format(EmissionModels; verbose=false, overwrite=false)
+    end
     @testset "Code linting" begin
         if isempty(VERSION.prerelease)
             using Pkg
@@ -17,6 +21,7 @@ using StatsAPI
         include("glm/gaussian.jl")
         include("glm/test_bernoulli_poisson.jl")
         include("glm/test_promotion_and_types.jl")
+        include("glm/test_controlled_hmm.jl")
     end
     @testset "Zero-inflated models" begin
         include("zeroinflated/test_poisson.jl")

@@ -5,6 +5,7 @@ using Distributions: cdf, quantile
 using Distributions:
     ContinuousUnivariateDistribution, DiscreteUnivariateDistribution, AbstractMvNormal
 using DensityInterface
+using HiddenMarkovModels: ControlledEmission
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic
 using NearestNeighbors: KDTree, knn
