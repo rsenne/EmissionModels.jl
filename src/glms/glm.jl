@@ -1292,8 +1292,7 @@ function _ControlRowsMatrix(rows::V, p::Int) where {V<:AbstractVector{<:Abstract
     return _ControlRowsMatrix{eltype(eltype(V)),V}(rows, p)
 end
 Base.size(M::_ControlRowsMatrix) = (length(M.rows), M.p)
-Base.@propagate_inbounds Base.getindex(M::_ControlRowsMatrix, i::Int, j::Int) =
-    M.rows[i][j]
+Base.@propagate_inbounds Base.getindex(M::_ControlRowsMatrix, i::Int, j::Int) = M.rows[i][j]
 Base.@propagate_inbounds Base.view(M::_ControlRowsMatrix, i::Integer, ::Colon) = M.rows[i]
 
 function StatsAPI.fit!(

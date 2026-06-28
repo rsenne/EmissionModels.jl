@@ -63,9 +63,7 @@ using Test
         p, T = 3, 600
         init = [0.6, 0.4]
         trans = [0.92 0.08; 0.15 0.85]
-        dists = [
-            PoissonGLM([0.2, 0.5, -0.3]), PoissonGLM([1.2, -0.4, 0.6])
-        ]
+        dists = [PoissonGLM([0.2, 0.5, -0.3]), PoissonGLM([1.2, -0.4, 0.6])]
         hmm = ControlledEmissionHMM(init, trans, dists)
 
         control_seq = [vcat(1.0, randn(rng, p - 1)) for _ in 1:T]
