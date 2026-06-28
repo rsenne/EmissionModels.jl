@@ -185,7 +185,6 @@ function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVecto
 end
 
 # Random sampling
-
 """
     rand([rng], dist::MultivariateT)
 
@@ -209,6 +208,70 @@ function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag)
     u = rand(rng, Chisq(dist.ν))
     z = randn(rng, dist.dim)
     return dist.μ .+ sqrt(dist.ν / u) .* sqrt.(dist.σ²) .* z
+end
+
+#= ECME degrees-of-freedom update, shared by the `MultivariateT` and
+   `MultivariateTDiag` fits. The t-distribution ν M-step minimises f(ν)² over
+   x = log ν (log-space keeps ν > 0), where the stationarity condition is
+
+       f(ν) = -ψ(ν/2) + log(ν/2) + 1 + C + ψ((ν+d)/2) - log((ν+d)/2),
+
+   and C = Σᵢ w̃ᵢ (log uᵢ - uᵢ) is the supplied `avg_log_u_minus_u` (uᵢ are the
+   per-observation posterior weights). Solved with Optim's Newton using the
+   analytic gradient and Hessian.
+
+   The objective/gradient/Hessian are top-level callable structs (functors)
+   parameterised by `(C, d)`, not closures defined inside `_update_nu`: their
+   method bodies compile once, so each ν M-step only instantiates three tiny
+   immutable structs instead of rebuilding closures on every call. `_nu_f` /
+   `_nu_df` / `_nu_d2f` hold the single definition of the residual and its
+   ν-derivatives, shared by all three functors. =#
+function _nu_f(ν, C, d)
+    return -digamma(ν / 2) + log(ν / 2) + 1 + C + digamma((ν + d) / 2) - log((ν + d) / 2)
+end
+_nu_df(ν, d) = -0.5 * trigamma(ν / 2) + 1 / ν + 0.5 * trigamma((ν + d) / 2) - 1 / (ν + d)
+function _nu_d2f(ν, d)
+    return -0.25 * polygamma(2, ν / 2) - 1 / ν^2 +
+           0.25 * polygamma(2, (ν + d) / 2) +
+           1 / (ν + d)^2
+end
+
+struct _NuObjective{T}
+    C::T
+    d::Int
+end
+(o::_NuObjective)(x::Vector) = _nu_f(exp(x[1]), o.C, o.d)^2
+
+struct _NuGradient{T}
+    C::T
+    d::Int
+end
+function (g::_NuGradient)(G, x::Vector)
+    ν = exp(x[1])
+    G[1] = 2 * _nu_f(ν, g.C, g.d) * _nu_df(ν, g.d) * ν
+    return G
+end
+
+struct _NuHessian{T}
+    C::T
+    d::Int
+end
+function (h::_NuHessian)(H, x::Vector)
+    ν = exp(x[1])
+    f = _nu_f(ν, h.C, h.d)
+    df = _nu_df(ν, h.d)
+    d2f = _nu_d2f(ν, h.d)
+    H[1, 1] = (2 * df^2 + 2 * f * d2f) * ν^2 + 2 * f * df * ν
+    return H
+end
+
+function _update_nu(ν0::Real, avg_log_u_minus_u, d::Integer)
+    C = avg_log_u_minus_u
+    td = TwiceDifferentiable(
+        _NuObjective(C, d), _NuGradient(C, d), _NuHessian(C, d), [log(ν0)]
+    )
+    result = optimize(td, [log(ν0)], Newton())
+    return exp(Optim.minimizer(result)[1])
 end
 
 """
@@ -342,55 +405,7 @@ function StatsAPI.fit!(
                 avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
             end
 
-            function objective(x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                return f^2
-            end
-
-            function gradient!(G, x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                df_dν =
-                    -0.5 * trigamma(ν_val / 2) +
-                    1 / ν_val +
-                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                return G[1] = 2 * f * df_dν * ν_val
-            end
-
-            function hessian!(H, x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                df_dν =
-                    -0.5 * trigamma(ν_val / 2) +
-                    1 / ν_val +
-                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                d2f_dν2 =
-                    -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
-                    0.25 * polygamma(2, (ν_val + d) / 2) +
-                    1 / (ν_val + d)^2
-                return H[1, 1] =
-                    (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
-            end
-
-            td = TwiceDifferentiable(objective, gradient!, hessian!, [log(dist.ν)])
-            result = optimize(td, [log(dist.ν)], Newton())
-            dist.ν = exp(Optim.minimizer(result)[1])
+            dist.ν = _update_nu(dist.ν, avg_log_u_minus_u, d)
         end
 
         # Convergence check (allocation-free)
@@ -523,55 +538,7 @@ function StatsAPI.fit!(
                 avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
             end
 
-            function objective(x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                return f^2
-            end
-
-            function gradient!(G, x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                df_dν =
-                    -0.5 * trigamma(ν_val / 2) +
-                    1 / ν_val +
-                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                return G[1] = 2 * f * df_dν * ν_val
-            end
-
-            function hessian!(H, x::Vector)
-                ν_val = exp(x[1])
-                f =
-                    -digamma(ν_val / 2) +
-                    log(ν_val / 2) +
-                    1 +
-                    avg_log_u_minus_u +
-                    digamma((ν_val + d) / 2) - log((ν_val + d) / 2)
-                df_dν =
-                    -0.5 * trigamma(ν_val / 2) +
-                    1 / ν_val +
-                    0.5 * trigamma((ν_val + d) / 2) - 1 / (ν_val + d)
-                d2f_dν2 =
-                    -0.25 * polygamma(2, ν_val / 2) - 1 / ν_val^2 +
-                    0.25 * polygamma(2, (ν_val + d) / 2) +
-                    1 / (ν_val + d)^2
-                return H[1, 1] =
-                    (2 * df_dν^2 + 2 * f * d2f_dν2) * ν_val^2 + 2 * f * df_dν * ν_val
-            end
-
-            td = TwiceDifferentiable(objective, gradient!, hessian!, [log(dist.ν)])
-            result = optimize(td, [log(dist.ν)], Newton())
-            dist.ν = exp(Optim.minimizer(result)[1])
+            dist.ν = _update_nu(dist.ν, avg_log_u_minus_u, d)
         end
 
         # Convergence check
