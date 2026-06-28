@@ -12,7 +12,7 @@ Recover the ACDC stochastic drivers for a fitted HiddenMarkovModels.jl `hmm`.
 
 For each time step the hidden state is sampled from its forward-backward
 posterior, and that state's emission is inverted to a driver via the probability
-integral transform (see [`_emission_to_driver`](@ref)). Component "usage" is the
+integral transform (see `_emission_to_driver`). Component "usage" is the
 posterior expected time spent in each state.
 
 # Arguments
