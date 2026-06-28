@@ -95,6 +95,5 @@ Base.rand(::Random.AbstractRNG, ::PoissonZeroInflated)
 Base.rand(::Random.AbstractRNG, ::MultivariateT)
 Base.rand(::Random.AbstractRNG, ::MultivariateTDiag)
 StatsAPI.fit!(::PoissonZeroInflated, ::AbstractVector, ::AbstractVector)
-StatsAPI.fit!(::MultivariateT, ::Any, ::Any)
-StatsAPI.fit!(::MultivariateTDiag, ::Any, ::Any)
+StatsAPI.fit!(::Union{MultivariateT,MultivariateTDiag}, ::Any, ::Any)
 ```
