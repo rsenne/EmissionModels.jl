@@ -31,6 +31,10 @@ using JuliaFormatter
         include("multivariate/test_t.jl")
     end
 
+    @testset "ACDC model selection" begin
+        include("acdc/test_acdc.jl")
+    end
+
     @testset "Allocations" begin
         include("allocations.jl")
     end
