@@ -1,17 +1,9 @@
-"""
-EmissionModelsHiddenMarkovModelsExt
+#= ACDC stochastic-driver recovery for HiddenMarkovModels.jl HMMs.
 
-Loads when `HiddenMarkovModels` is available alongside `EmissionModels`, adding
-the ACDC `stochastic_drivers` method for any `AbstractHMM`. Driver recovery uses
-forward-backward state posteriors plus the per-emission PIT defined in
-`EmissionModels._emission_to_driver`, so it works with any HMM whose emissions
-are standard `Distributions` (or a type with a custom driver method).
-"""
-module EmissionModelsHiddenMarkovModelsExt
-
-using EmissionModels: EmissionModels, StochasticDriverResult
-using HiddenMarkovModels: AbstractHMM, obs_distributions, forward_backward
-using Random: rand
+   Driver recovery uses the forward-backward state posteriors plus the
+   per-emission PIT defined in `_emission_to_driver` (see `drivers.jl`), so it
+   works with any HMM whose emissions are standard `Distributions` (or a type
+   with a custom driver method). =#
 
 """
     stochastic_drivers(hmm::AbstractHMM, obs_seq; control_seq, seq_ends, n_samples=1)
@@ -20,8 +12,8 @@ Recover the ACDC stochastic drivers for a fitted HiddenMarkovModels.jl `hmm`.
 
 For each time step the hidden state is sampled from its forward-backward
 posterior, and that state's emission is inverted to a driver via the probability
-integral transform (see [`EmissionModels._emission_to_driver`](@ref)). Component
-"usage" is the posterior expected time spent in each state.
+integral transform (see [`_emission_to_driver`](@ref)). Component "usage" is the
+posterior expected time spent in each state.
 
 # Arguments
 - `hmm::AbstractHMM`: a fitted HMM satisfying the HiddenMarkovModels.jl interface.
@@ -38,7 +30,7 @@ integral transform (see [`EmissionModels._emission_to_driver`](@ref)). Component
 # Returns
 - [`StochasticDriverResult`](@ref) with per-state driver pools and usage.
 """
-function EmissionModels.stochastic_drivers(
+function stochastic_drivers(
     hmm::AbstractHMM,
     obs_seq::AbstractVector;
     control_seq::AbstractVector=fill(nothing, length(obs_seq)),
@@ -57,7 +49,7 @@ function EmissionModels.stochastic_drivers(
 
     # Driver dimension from a probe on the first observation's sampled-state-able
     # emission (all states share the emission dimension in an HMM).
-    probe = EmissionModels._emission_to_driver(
+    probe = _emission_to_driver(
         obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
     )
     D = length(probe)
@@ -66,12 +58,9 @@ function EmissionModels.stochastic_drivers(
     ε_lists = [Vector{Vector{Tε}}() for _ in 1:K]
     for _ in 1:n_samples
         for t in 1:T_len
-            z = EmissionModels._sample_categorical(view(γ, :, t))
+            z = _sample_categorical(view(γ, :, t))
             dist = obs_distributions(hmm, control_seq[t])[z]
-            push!(
-                ε_lists[z],
-                EmissionModels._emission_to_driver(dist, obs_seq[t], control_seq[t]),
-            )
+            push!(ε_lists[z], _emission_to_driver(dist, obs_seq[t], control_seq[t]))
         end
     end
 
@@ -87,5 +76,3 @@ function EmissionModels.stochastic_drivers(
 
     return StochasticDriverResult(ε_pools, collect(Tε, usage))
 end
-
-end  # module

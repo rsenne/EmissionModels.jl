@@ -16,18 +16,13 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
-[weakdeps]
-HiddenMarkovModels = "84ca31d5-effc-45e0-bfda-5a68cd981f47"
-
-[extensions]
-EmissionModelsHiddenMarkovModelsExt = "HiddenMarkovModels"
-
 [compat]
 DensityInterface = "0.4.0"
 Distributions = "0.25.122"
 HiddenMarkovModels = "0.7.1"
 LinearAlgebra = "1.12.0"
 LogExpFunctions = "0.3.29, 1"
+NearestNeighbors = "0.4.27"
 Optim = "1.13.3, 2"
 Random = "1.11.0"
 SpecialFunctions = "2.6.1"

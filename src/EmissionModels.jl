@@ -6,6 +6,7 @@ using Distributions:
     ContinuousUnivariateDistribution, DiscreteUnivariateDistribution, AbstractMvNormal
 using DensityInterface
 using HiddenMarkovModels: ControlledEmission
+using HiddenMarkovModels: AbstractHMM, obs_distributions, forward_backward
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic
 using NearestNeighbors: KDTree, knn
@@ -22,6 +23,7 @@ include("multivariate/t.jl")
 include("glms/glm.jl")
 include("acdc/interface.jl")
 include("acdc/drivers.jl")
+include("acdc/hmm.jl")
 
 # exports
 export rand, logdensityof, fit!

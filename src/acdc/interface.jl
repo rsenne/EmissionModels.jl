@@ -1,5 +1,5 @@
 #=
-ACDC — Accumulated Cutoff Discrepancy Criterion.
+ACDC: Accumulated Cutoff Discrepancy Criterion.
 
 Robust model selection that measures component-level discrepancy via the
 "stochastic drivers" framework (Li et al., 2026). The generative process is
@@ -19,11 +19,7 @@ per-component discrepancies all fall below a cutoff ``\\rho``.
 This file holds the model-agnostic core: result types, discrepancy measures,
 and the loss/selection machinery. Model-specific recovery of the drivers is
 done by `stochastic_drivers`, whose methods live alongside the model types they
-support (for HiddenMarkovModels.jl HMMs, in the package extension).
-
-This is a diagnostic / model-selection tool run once on a fitted model, not a
-hot path, so the code favors clarity over the zero-allocation discipline the
-emission `fit!`/`logdensityof` paths follow.
+support.
 =#
 
 """
@@ -86,15 +82,14 @@ Recover the stochastic drivers ``\\varepsilon_{n,k}`` for a fitted `model` by
 inverting its generative process. Returns a [`StochasticDriverResult`](@ref).
 
 This is a generic function; methods are defined per model type. The method for
-HiddenMarkovModels.jl `AbstractHMM`s is provided by the package extension that
-loads with `HiddenMarkovModels`. The fallback below errors for unsupported models.
+HiddenMarkovModels.jl `AbstractHMM`s lives in `hmm.jl`. The fallback below errors
+for unsupported models.
 """
 function stochastic_drivers(model, data; kwargs...)
     throw(
         ArgumentError(
             "ACDC has no `stochastic_drivers` method for a model of type " *
-            "$(typeof(model)). Load `HiddenMarkovModels` to enable support for " *
-            "`AbstractHMM` models, or define a `stochastic_drivers` method.",
+            "$(typeof(model)). Define a `stochastic_drivers` method to add support.",
         ),
     )
 end
