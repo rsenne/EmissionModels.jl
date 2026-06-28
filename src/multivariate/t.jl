@@ -32,10 +32,6 @@ mutable struct MultivariateT{T<:Real}
     logdetΣ::T
     dim::Int
 
-    # Scratch buffers for fit! (sequential use only — not thread-safe for concurrent fit!)
-    _diff::Vector{T}
-    _z::Vector{T}
-
     function MultivariateT{T}(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real}
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
@@ -50,7 +46,7 @@ mutable struct MultivariateT{T<:Real}
 
         logdetΣ = logdet(Σ_chol)
 
-        return new{T}(μ, Σ, ν, Σ_chol, logdetΣ, dim, zeros(T, dim), zeros(T, dim))
+        return new{T}(μ, Σ, ν, Σ_chol, logdetΣ, dim)
     end
 end
 
@@ -94,9 +90,6 @@ mutable struct MultivariateTDiag{T<:Real}
     logdetΣ::T
     dim::Int
 
-    # Scratch buffer for fit! (sequential use only — not thread-safe for concurrent fit!)
-    _diff::Vector{T}
-
     function MultivariateTDiag{T}(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
@@ -111,7 +104,7 @@ mutable struct MultivariateTDiag{T<:Real}
 
         logdetΣ = sum(log, σ²)
 
-        return new{T}(μ, σ², ν, logdetΣ, dim, zeros(T, dim))
+        return new{T}(μ, σ², ν, logdetΣ, dim)
     end
 end
 
@@ -130,6 +123,15 @@ end
 DensityInterface.DensityKind(::MultivariateT) = DensityInterface.HasDensity()
 DensityInterface.DensityKind(::MultivariateTDiag) = DensityInterface.HasDensity()
 
+#= Log density of a multivariate Student-t given the precomputed Mahalanobis²
+   `mahal² = (x-μ)ᵀ Σ⁻¹ (x-μ)`. The full-covariance and diagonal variants differ
+   only in how `mahal²` and `logdetΣ` are formed, so the normalisation constant
+   and the `log1p` tail are defined here once. =#
+function _t_logpdf(ν, d, logdetΣ, mahal²)
+    log_norm = loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - logdetΣ / 2
+    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
+end
+
 """
     logdensityof(dist::MultivariateT, x::AbstractVector)
 
@@ -142,13 +144,9 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
     length(x) == dist.dim ||
         throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
-    d = dist.dim
-    ν = dist.ν
-
-    #= Allocate the residual locally (one length-d vector). Thread-safe:
-       parallel forward/backward calls on the same dist don't share state.
-       The struct scratch (`_diff`, `_z`) is reserved for `fit!`, which
-       runs sequentially per state inside HMM EM. =#
+    #= Allocate the residual locally (one length-d vector). The struct holds no
+       mutable scratch, so concurrent `logdensityof`/`rand` on a shared dist are
+       safe; `fit!` likewise allocates its scratch per call. =#
     diff = x - dist.μ
     ldiv!(dist.Σ_chol.L, diff)
     mahal² = zero(eltype(diff))
@@ -156,10 +154,7 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
         mahal² += diff[i] * diff[i]
     end
 
-    log_norm =
-        loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
-
-    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
+    return _t_logpdf(dist.ν, dist.dim, dist.logdetΣ, mahal²)
 end
 
 """
@@ -174,14 +169,9 @@ function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVecto
         throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
     d = dist.dim
-    ν = dist.ν
-
     mahal² = sum((x[i] - dist.μ[i])^2 / dist.σ²[i] for i in 1:d)
 
-    log_norm =
-        loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - dist.logdetΣ / 2
-
-    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
+    return _t_logpdf(dist.ν, d, dist.logdetΣ, mahal²)
 end
 
 # Random sampling
@@ -274,36 +264,145 @@ function _update_nu(ν0::Real, avg_log_u_minus_u, d::Integer)
     return exp(Optim.minimizer(result)[1])
 end
 
-"""
-    fit!(dist::MultivariateT, obs_seq, weight_seq; kwargs...)
+#= 
+Type-specific hooks for the shared multivariate-t EM driver
+he two variants differ only in how the scale parameter is stored and updated;
+these hooks isolate those differences so the EM scaffold can be written once.
 
-Fit the multivariate t-distribution parameters to weighted observations using
-maximum likelihood estimation via EM algorithm.
+Scale parameter used for the convergence snapshot/diff (Σ matrix or σ² vector).
+=#
+_scale_current(dist::MultivariateT) = dist.Σ
+_scale_current(dist::MultivariateTDiag) = dist.σ²
+
+_scale_snapshot(dist) = copy(_scale_current(dist))
+_scale_snapshot!(buf, dist) = copyto!(buf, _scale_current(dist))
+function _scale_maxdiff(dist, scale_old)
+    s = _scale_current(dist)
+    m = zero(eltype(s))
+    for i in eachindex(s, scale_old)
+        m = max(m, abs(s[i] - scale_old[i]))
+    end
+    return m
+end
+
+# Per-call EM scratch, allocated once per `fit!` and threaded through the hooks
+# so the distribution structs carry no mutable state: `fit!` on distinct dists
+# and concurrent `logdensityof`/`rand` on a shared dist are then all thread-safe.
+function _em_workspace(dist::MultivariateT)
+    T = eltype(dist.μ)
+    d = dist.dim
+    return (scatter=zeros(T, d, d), diff=Vector{T}(undef, d), z=Vector{T}(undef, d))
+end
+_em_workspace(dist::MultivariateTDiag) = (scatter=zeros(eltype(dist.μ), dist.dim),)
+
+# E-step Mahalanobis² for one observation. The full-covariance variant uses the
+# workspace residual buffers; the diagonal variant needs none (ws is ignored).
+function _mahalanobis²!(dist::MultivariateT, ws, obs_i)
+    ws.diff .= obs_i .- dist.μ
+    ldiv!(ws.z, dist.Σ_chol.L, ws.diff)
+    return sum(abs2, ws.z)
+end
+function _mahalanobis²!(dist::MultivariateTDiag, ws, obs_i)
+    mahal² = zero(eltype(dist.μ))
+    for j in 1:(dist.dim)
+        δ = obs_i[j] - dist.μ[j]
+        mahal² += δ^2 / dist.σ²[j]
+    end
+    return mahal²
+end
+
+#= Scale M-step: recompute the scale from residuals against the updated μ,
+   weighted by wᵢ·pwᵢ / Σw, then refresh the cached `logdetΣ` (and Cholesky). =#
+function _scatter_mstep!(
+    dist::MultivariateT, ws, obs_seq, weight_seq, posterior_weights, weight_sum
+)
+    T = eltype(dist.μ)
+    d = dist.dim
+    Σ_acc = ws.scatter
+    fill!(Σ_acc, zero(T))
+    # Rank-1 outer-product accumulation via BLAS.ger!.
+    for i in eachindex(obs_seq)
+        weight_seq[i] > 0 || continue
+        ws.diff .= obs_seq[i] .- dist.μ
+        wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
+        BLAS.ger!(wp, ws.diff, ws.diff, Σ_acc)
+    end
+    # Symmetrize numerical noise.
+    for j in 1:d, k in 1:(j - 1)
+        s = (Σ_acc[j, k] + Σ_acc[k, j]) / 2
+        Σ_acc[j, k] = s
+        Σ_acc[k, j] = s
+    end
+    #= Σ_acc is PSD by construction and PD whenever the weighted residuals span
+       ℝᵈ. Failure means a degenerate observation set (zero variance along some
+       axis) — surface that rather than silently regularizing. =#
+    Σ_chol_new = cholesky(Symmetric(Σ_acc, :L); check=false)
+    issuccess(Σ_chol_new) || throw(
+        ArgumentError(
+            "Σ M-step is not positive definite — observations are " *
+            "degenerate along at least one dimension. Inspect `obs_seq` " *
+            "for collinear or constant components.",
+        ),
+    )
+    dist.Σ .= Σ_acc
+    dist.Σ_chol = Σ_chol_new
+    dist.logdetΣ = logdet(dist.Σ_chol)
+    return dist
+end
+function _scatter_mstep!(
+    dist::MultivariateTDiag, ws, obs_seq, weight_seq, posterior_weights, weight_sum
+)
+    T = eltype(dist.μ)
+    d = dist.dim
+    σ²_acc = ws.scatter
+    fill!(σ²_acc, zero(T))
+    for i in eachindex(obs_seq)
+        weight_seq[i] > 0 || continue
+        wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
+        for j in 1:d
+            diff_j = obs_seq[i][j] - dist.μ[j]
+            σ²_acc[j] += wp * diff_j^2
+        end
+    end
+    # Type-aware variance floor (≈1.5e-8 at Float64, scales with precision) to
+    # keep σ² strictly positive without a hardcoded Float64 constant.
+    var_floor = sqrt(eps(T))
+    for j in 1:d
+        dist.σ²[j] = max(σ²_acc[j], var_floor)
+    end
+    dist.logdetΣ = sum(log, dist.σ²)
+    return dist
+end
+
+"""
+    fit!(dist::MultivariateT,     obs_seq, weight_seq; kwargs...)
+    fit!(dist::MultivariateTDiag, obs_seq, weight_seq; kwargs...)
+
+Fit a multivariate Student-t emission to weighted observations by EM (ECME), in
+place. A single driver serves both the full-covariance and diagonal variants;
+they differ only in the scale-parameter hooks (`_mahalanobis²!`,
+`_scatter_mstep!`, `_scale_current`).
 
 # Arguments
-- `dist::MultivariateT`: Distribution to update (modified in-place)
-- `obs_seq`: Sequence of observations (vector of vectors)
-- `weight_seq`: Sequence of weights for each observation
+- `dist`: distribution to update (modified in-place)
+- `obs_seq`: sequence of observations (vector of vectors)
+- `weight_seq`: per-observation weights (e.g. HMM posterior state probabilities)
 
 # Keyword Arguments
-- `max_iter::Int=100`: Maximum number of EM iterations
-- `tol::Float64=1e-6`: Convergence tolerance for parameters
-- `fix_nu::Bool=false`: If true, keep ν fixed during estimation
-
-# Returns
-- `dist`: The updated distribution (same object as input)
+- `max_iter::Int=100`: maximum number of EM iterations
+- `tol::Real=1e-6`: convergence tolerance on the parameters
+- `fix_nu::Bool=false`: if true, keep ν fixed during estimation
 
 # Algorithm
-Uses the EM algorithm for multivariate t-distribution:
-- E-step: Compute posterior weights based on Mahalanobis distance
-- M-step: Update μ, Σ, and optionally ν
+- E-step: posterior weights `pw = (ν+d)/(ν+mahal²)` from the Mahalanobis distance
+- M-step: update μ (pw-weighted), then the scale (Σ or σ²), then ν (ECME)
 
 # Reference
 Liu, C., & Rubin, D. B. (1995). ML estimation of the t distribution using EM
 and its extensions, ECM and ECME. Statistica Sinica, 19-39.
 """
 function StatsAPI.fit!(
-    dist::MultivariateT,
+    dist::Union{MultivariateT,MultivariateTDiag},
     obs_seq,
     weight_seq;
     max_iter::Int=100,
@@ -332,174 +431,22 @@ function StatsAPI.fit!(
     T = eltype(dist.μ)
     n = length(obs_seq)
 
-    # Allocate working arrays once per fit! call (not per iteration)
+    # Working buffers allocated once per call (not per iteration).
     posterior_weights = Vector{T}(undef, n)
-    Σ_acc = zeros(T, d, d)
+    ws = _em_workspace(dist)
     μ_acc = zeros(T, d)
     μ_old = copy(dist.μ)
-    Σ_old = copy(dist.Σ)
+    scale_old = _scale_snapshot(dist)
     ν_old = dist.ν
 
     for _ in 1:max_iter
-        # E-step + μ M-step accumulation (single pass; uses dist._diff and dist._z)
+        # E-step + μ M-step accumulation (single pass).
         fill!(μ_acc, zero(T))
         weight_post_sum = zero(T)
-
         for i in eachindex(obs_seq)
             w = weight_seq[i]
             if w > 0
-                dist._diff .= obs_seq[i] .- dist.μ
-                ldiv!(dist._z, dist.Σ_chol.L, dist._diff)
-                pw = T((dist.ν + d) / (dist.ν + sum(abs2, dist._z)))
-                posterior_weights[i] = pw
-                wp = T(w / weight_sum) * pw
-                for j in 1:d
-                    μ_acc[j] += wp * obs_seq[i][j]
-                end
-                weight_post_sum += wp
-            else
-                posterior_weights[i] = zero(T)
-            end
-        end
-
-        dist.μ .= μ_acc ./ weight_post_sum
-
-        # Σ M-step: rank-1 outer product accumulation using BLAS.ger!
-        fill!(Σ_acc, zero(T))
-        for i in eachindex(obs_seq)
-            weight_seq[i] > 0 || continue
-            dist._diff .= obs_seq[i] .- dist.μ
-            wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
-            BLAS.ger!(wp, dist._diff, dist._diff, Σ_acc)
-        end
-
-        # Symmetrize numerical noise
-        for j in 1:d, k in 1:(j - 1)
-            s = (Σ_acc[j, k] + Σ_acc[k, j]) / 2
-            Σ_acc[j, k] = s
-            Σ_acc[k, j] = s
-        end
-
-        #= Σ_acc is PSD by construction and PD whenever the weighted residuals
-           span ℝᵈ. Failure here means a degenerate observation set (zero
-           variance along some axis) — surface that rather than silently
-           regularizing with an arbitrary eigenvalue shift. =#
-        Σ_chol_new = cholesky(Symmetric(Σ_acc, :L); check=false)
-        issuccess(Σ_chol_new) || throw(
-            ArgumentError(
-                "Σ M-step is not positive definite — observations are " *
-                "degenerate along at least one dimension. Inspect `obs_seq` " *
-                "for collinear or constant components.",
-            ),
-        )
-        dist.Σ .= Σ_acc
-        dist.Σ_chol = Σ_chol_new
-        dist.logdetΣ = logdet(dist.Σ_chol)
-
-        # ν M-step
-        if !fix_nu
-            avg_log_u_minus_u = zero(T)
-            for i in eachindex(obs_seq)
-                weight_seq[i] > 0 || continue
-                pw = posterior_weights[i]
-                avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
-            end
-
-            dist.ν = _update_nu(dist.ν, avg_log_u_minus_u, d)
-        end
-
-        # Convergence check (allocation-free)
-        μ_diff = zero(T)
-        for j in 1:d
-            μ_diff = max(μ_diff, abs(dist.μ[j] - μ_old[j]))
-        end
-        Σ_diff = zero(T)
-        for j in 1:d, k in 1:d
-            Σ_diff = max(Σ_diff, abs(dist.Σ[j, k] - Σ_old[j, k]))
-        end
-        ν_diff = abs(dist.ν - ν_old)
-
-        if μ_diff < tol && Σ_diff < tol && (fix_nu || ν_diff < tol)
-            break
-        end
-
-        μ_old .= dist.μ
-        Σ_old .= dist.Σ
-        ν_old = dist.ν
-    end
-
-    return dist
-end
-
-"""
-    fit!(dist::MultivariateTDiag, obs_seq, weight_seq; kwargs...)
-
-Fit the diagonal multivariate t-distribution parameters to weighted observations
-using maximum likelihood estimation via EM algorithm.
-
-# Arguments
-- `dist::MultivariateTDiag`: Distribution to update (modified in-place)
-- `obs_seq`: Sequence of observations (vector of vectors)
-- `weight_seq`: Sequence of weights for each observation
-
-# Keyword Arguments
-- `max_iter::Int=100`: Maximum number of EM iterations
-- `tol::Float64=1e-6`: Convergence tolerance for parameters
-- `fix_nu::Bool=false`: If true, keep ν fixed during estimation
-
-# Returns
-- `dist`: The updated distribution (same object as input)
-"""
-function StatsAPI.fit!(
-    dist::MultivariateTDiag,
-    obs_seq,
-    weight_seq;
-    max_iter::Int=100,
-    tol::Real=1e-6,
-    fix_nu::Bool=false,
-)
-    length(obs_seq) == length(weight_seq) ||
-        throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
-
-    isempty(obs_seq) && return dist
-
-    d = dist.dim
-    for (i, obs) in enumerate(obs_seq)
-        length(obs) == d || throw(
-            DimensionMismatch("Observation $i has length $(length(obs)), expected $d")
-        )
-    end
-
-    weight_sum = zero(eltype(weight_seq))
-    for w in weight_seq
-        w > 0 && (weight_sum += w)
-    end
-    iszero(weight_sum) && return dist
-
-    T = eltype(dist.μ)
-    n = length(obs_seq)
-
-    # Allocate working arrays once per fit! call
-    posterior_weights = Vector{T}(undef, n)
-    σ²_acc = zeros(T, d)
-    μ_acc = zeros(T, d)
-    μ_old = copy(dist.μ)
-    σ²_old = copy(dist.σ²)
-    ν_old = dist.ν
-
-    for _ in 1:max_iter
-        # E-step + μ M-step accumulation
-        fill!(μ_acc, zero(T))
-        weight_post_sum = zero(T)
-
-        for i in eachindex(obs_seq)
-            w = weight_seq[i]
-            if w > 0
-                mahal² = zero(T)
-                for j in 1:d
-                    dist._diff[j] = obs_seq[i][j] - dist.μ[j]
-                    mahal² += dist._diff[j]^2 / dist.σ²[j]
-                end
+                mahal² = _mahalanobis²!(dist, ws, obs_seq[i])
                 pw = T((dist.ν + d) / (dist.ν + mahal²))
                 posterior_weights[i] = pw
                 wp = T(w / weight_sum) * pw
@@ -511,25 +458,12 @@ function StatsAPI.fit!(
                 posterior_weights[i] = zero(T)
             end
         end
-
         dist.μ .= μ_acc ./ weight_post_sum
 
-        # σ² M-step (second pass with updated μ)
-        fill!(σ²_acc, zero(T))
-        for i in eachindex(obs_seq)
-            weight_seq[i] > 0 || continue
-            wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
-            for j in 1:d
-                diff_j = obs_seq[i][j] - dist.μ[j]
-                σ²_acc[j] += wp * diff_j^2
-            end
-        end
-        for j in 1:d
-            dist.σ²[j] = max(σ²_acc[j], T(1e-8))
-        end
-        dist.logdetΣ = sum(log, dist.σ²)
+        # Scale M-step (Σ or σ²): second residual pass + logdetΣ refresh.
+        _scatter_mstep!(dist, ws, obs_seq, weight_seq, posterior_weights, weight_sum)
 
-        # ν M-step
+        # ν M-step (ECME)
         if !fix_nu
             avg_log_u_minus_u = zero(T)
             for i in eachindex(obs_seq)
@@ -537,27 +471,22 @@ function StatsAPI.fit!(
                 pw = posterior_weights[i]
                 avg_log_u_minus_u += T(weight_seq[i] / weight_sum) * (log(pw) - pw)
             end
-
             dist.ν = _update_nu(dist.ν, avg_log_u_minus_u, d)
         end
 
-        # Convergence check
+        # Convergence check (allocation-free).
         μ_diff = zero(T)
         for j in 1:d
             μ_diff = max(μ_diff, abs(dist.μ[j] - μ_old[j]))
         end
-        σ²_diff = zero(T)
-        for j in 1:d
-            σ²_diff = max(σ²_diff, abs(dist.σ²[j] - σ²_old[j]))
-        end
+        scale_diff = _scale_maxdiff(dist, scale_old)
         ν_diff = abs(dist.ν - ν_old)
-
-        if μ_diff < tol && σ²_diff < tol && (fix_nu || ν_diff < tol)
+        if μ_diff < tol && scale_diff < tol && (fix_nu || ν_diff < tol)
             break
         end
 
         μ_old .= dist.μ
-        σ²_old .= dist.σ²
+        _scale_snapshot!(scale_old, dist)
         ν_old = dist.ν
     end
 
