@@ -2,6 +2,7 @@ module EmissionModels
 
 using Distributions: Normal, Bernoulli, Poisson, Chisq
 using DensityInterface
+using HiddenMarkovModels: ControlledEmission
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic
 using Optim: optimize, TwiceDifferentiable, Newton, LBFGS, LineSearches
