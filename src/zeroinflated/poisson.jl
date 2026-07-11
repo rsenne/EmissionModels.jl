@@ -79,6 +79,13 @@ function Random.rand(rng::Random.AbstractRNG, dist::PoissonZeroInflated)
     end
 end
 
+#= Array forms (`rand(dist, n)` etc.) go through Random's sampler machinery,
+   which needs the sample eltype and a method on the default trivial sampler. =#
+Base.eltype(::Type{<:PoissonZeroInflated}) = Int
+function Random.rand(rng::AbstractRNG, sp::Random.SamplerTrivial{<:PoissonZeroInflated})
+    return rand(rng, sp[])
+end
+
 # Parameter estimation
 """
 	fit!(dist::PoissonZeroInflated, obs_seq, weight_seq)

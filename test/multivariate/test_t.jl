@@ -548,3 +548,47 @@ end
         @test all(all(1.0 .<= dist.σ² .<= 3.0) for dist in hmm_custom.dists)
     end
 end
+
+@testset "Constructor does not alias caller arrays" begin
+    μ = [0.0, 0.0]
+    Σ = [1.0 0.3; 0.3 1.0]
+    dist = MultivariateT(μ, Σ, 5.0)
+    lp_before = logdensityof(dist, [0.1, 0.2])
+    # Mutating the caller's arrays must not affect the (cached) distribution.
+    Σ[1, 1] = 100.0
+    μ[1] = 50.0
+    @test dist.Σ[1, 1] == 1.0
+    @test dist.μ[1] == 0.0
+    @test logdensityof(dist, [0.1, 0.2]) == lp_before
+
+    σ² = [1.0, 2.0]
+    μd = [0.0, 0.0]
+    distd = MultivariateTDiag(μd, σ², 5.0)
+    lp_before_d = logdensityof(distd, [0.1, 0.2])
+    σ²[1] = 100.0
+    μd[1] = 50.0
+    @test distd.σ²[1] == 1.0
+    @test logdensityof(distd, [0.1, 0.2]) == lp_before_d
+end
+
+@testset "Array sampling API" begin
+    rng = Random.MersenneTwister(42)
+    dist = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
+    samples = rand(rng, dist, 10)
+    @test samples isa Vector{Vector{Float64}}
+    @test length(samples) == 10
+    @test all(length(s) == 2 for s in samples)
+
+    distd = MultivariateTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
+    samples_d = rand(rng, distd, 10)
+    @test samples_d isa Vector{Vector{Float64}}
+    @test length(samples_d) == 10
+end
+
+@testset "Float32 type stability" begin
+    dist = MultivariateT(Float32[0, 0], Float32[1 0; 0 1], 5.0f0)
+    @test logdensityof(dist, Float32[0.1, 0.2]) isa Float32
+
+    distd = MultivariateTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
+    @test logdensityof(distd, Float32[0.1, 0.2]) isa Float32
+end

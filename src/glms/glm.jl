@@ -85,7 +85,7 @@ exact MAP solution for a Gaussian prior β ~ N(0, (1/λ)I).
 
 # Fields
 - `β`: coefficient vector (length p)
-- `σ2`: noise variance
+- `σ2`: noise variance (must be positive)
 - `prior`: regularization prior (default `NoPrior()`)
 """
 mutable struct GaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
@@ -95,6 +95,7 @@ mutable struct GaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     function GaussianGLM{T,P}(
         β::Vector{T}, σ2::T, prior::P
     ) where {T<:Real,P<:AbstractPrior}
+        σ2 > 0 || throw(ArgumentError("σ2 must be positive, got $σ2"))
         return new{T,P}(β, σ2, prior)
     end
 end

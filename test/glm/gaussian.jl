@@ -290,3 +290,11 @@ end
         @test_throws DimensionMismatch fit!(glm, wrong_dim_obs, ones(5); control_seq=X)
     end
 end
+
+@testset "GaussianGLM rejects non-positive σ2" begin
+    @test_throws ArgumentError GaussianGLM([1.0, 2.0], -2.0)
+    @test_throws ArgumentError GaussianGLM([1.0, 2.0], 0.0)
+    @test_throws ArgumentError GaussianGLM([1.0, 2.0], -1.0, RidgePrior(0.5))
+    # Positive σ2 still constructs fine, including through the promoting path.
+    @test GaussianGLM([1, 2], 1) isa GaussianGLM{Float64,NoPrior}
+end
