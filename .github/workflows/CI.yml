@@ -23,14 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         version:
+          - '1.10' # declared minimum in Project.toml
           - '1'
-          - '1.12'
           - 'pre'
         os:
           - ubuntu-latest
         arch:
           - x64
-          - x86
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
