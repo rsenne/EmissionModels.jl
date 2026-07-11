@@ -74,9 +74,9 @@ GLM emissions are fit by minimizing the negative log-posterior (or weighted nega
 # Gaussian is closed-form weighted least squares.
 fit!(glm, y_seq, w_seq; control_seq=X)
 
-# Bernoulli / Poisson use a hand-rolled Newton with backtracking line search.
-fit!(glm, y_seq, w_seq; control_seq=X,
-     max_iter=50, gtol=1e-8, max_backtrack=20)
+# Bernoulli / Poisson use Optim's Newton with analytic gradient and Hessian
+# (supplied via a fused fgh!).
+fit!(glm, y_seq, w_seq; control_seq=X, max_iter=50, gtol=1e-8)
 ```
 
 ## API Reference
