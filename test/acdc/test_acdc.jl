@@ -109,7 +109,7 @@ end
 
     # ZIP: randomized PIT drivers are ~U(0,1) under the true model.
     zip = PoissonZeroInflated(3.0, 0.25)
-    zeps = [EM._emission_to_driver(zip, rand(rng, zip))[1] for _ in 1:40_000]
+    zeps = [EM._emission_to_driver(rng, zip, rand(rng, zip))[1] for _ in 1:40_000]
     @test all(0 .<= zeps .<= 1)
     @test isapprox(Statistics.mean(zeps), 0.5; atol=0.02)
     @test isapprox(Statistics.var(zeps), 1 / 12; atol=0.01)
@@ -117,7 +117,7 @@ end
 
     Σ = [1.0 0.5 0.2; 0.5 2.0 0.3; 0.2 0.3 1.5]
     mvt = MultivariateT([1.0, -2.0, 0.5], Σ, 6.0)
-    E = reduce(hcat, (EM._emission_to_driver(mvt, rand(rng, mvt)) for _ in 1:40_000))
+    E = reduce(hcat, (EM._emission_to_driver(rng, mvt, rand(rng, mvt)) for _ in 1:40_000))
     @test size(E, 1) == 3
     @test all(0 .<= E .<= 1)
     @test all(isapprox.(vec(Statistics.mean(E; dims=2)), 0.5; atol=0.02))
@@ -127,7 +127,9 @@ end
 
     # Diagonal scale variant.
     mvtd = MultivariateTDiag([0.0, 1.0], [1.0, 3.0], 4.0)
-    Ed = reduce(hcat, (EM._emission_to_driver(mvtd, rand(rng, mvtd)) for _ in 1:40_000))
+    Ed = reduce(
+        hcat, (EM._emission_to_driver(rng, mvtd, rand(rng, mvtd)) for _ in 1:40_000)
+    )
     @test all(0 .<= Ed .<= 1)
     @test compute_discrepancy(KSDiscrepancy(), Ed) < 0.05
     @test abs(Statistics.cov(Ed[1, :], Ed[2, :])) < 0.01
@@ -148,7 +150,7 @@ end
         e = Float64[]
         for _ in 1:N
             x = mkx()
-            push!(e, EM._emission_to_driver(g, rand(rng, g; control_seq=x), x)[1])
+            push!(e, EM._emission_to_driver(rng, g, rand(rng, g; control_seq=x), x)[1])
         end
         @test all(0 .<= e .<= 1)
         @test isapprox(Statistics.mean(e), 0.5; atol=0.02)
@@ -160,7 +162,7 @@ end
     Eg = Matrix{Float64}(undef, 2, N)
     for i in 1:N
         x = mkx()
-        Eg[:, i] = EM._emission_to_driver(mg, rand(rng, mg; control_seq=x), x)
+        Eg[:, i] = EM._emission_to_driver(rng, mg, rand(rng, mg; control_seq=x), x)
     end
     @test compute_discrepancy(KSDiscrepancy(), Eg) < 0.05
     @test abs(Statistics.cov(Eg[1, :], Eg[2, :])) < 0.01
@@ -172,15 +174,15 @@ end
         E = Matrix{Float64}(undef, 2, N)
         for i in 1:N
             x = mkx()
-            E[:, i] = EM._emission_to_driver(g, rand(rng, g; control_seq=x), x)
+            E[:, i] = EM._emission_to_driver(rng, g, rand(rng, g; control_seq=x), x)
         end
         @test all(0 .<= E .<= 1)
         @test compute_discrepancy(KSDiscrepancy(), E) < 0.05
         @test abs(Statistics.cov(E[1, :], E[2, :])) < 0.01
     end
 
-    # 2-arg form on a GLM ⇒ clear error (covariate required).
-    @test_throws ArgumentError EM._emission_to_driver(GaussianGLM([0.5], 1.0), 1.0)
+    # Covariate-free form on a GLM ⇒ clear error (covariate required).
+    @test_throws ArgumentError EM._emission_to_driver(rng, GaussianGLM([0.5], 1.0), 1.0)
 end
 
 @testset "Discrepancy edge cases" begin
@@ -202,7 +204,7 @@ end
         Float32
 
     # Unsupported emission ⇒ clear error.
-    @test_throws ArgumentError EmissionModels._emission_to_driver(missing, 1.0)
+    @test_throws ArgumentError EmissionModels._emission_to_driver(rng, missing, 1.0)
 
     # Unsupported model ⇒ stochastic_drivers fallback errors (also via the
     # component_discrepancies path, which forwards to stochastic_drivers).
@@ -216,8 +218,49 @@ end
     _, obs_seq = rand(rng, hmm, 100)
 
     @test_throws ArgumentError stochastic_drivers(hmm, obs_seq; n_samples=0)
+    @test_throws ArgumentError stochastic_drivers(hmm, eltype(obs_seq)[])
 
     # n_samples > 1 multiplies the pool size (one assignment per step per pass).
     sd = stochastic_drivers(hmm, obs_seq; n_samples=2)
     @test sum(size.(sd.ε_pools, 2)) == 200
+end
+
+@testset "Reproducibility with a seeded rng" begin
+    rng = Random.MersenneTwister(31)
+    hmm = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Poisson(2.0), Poisson(15.0)])
+    _, obs_seq = rand(rng, hmm, 500)
+
+    # Same seed ⇒ identical drivers and identical discrepancies.
+    sd1 = stochastic_drivers(hmm, obs_seq; rng=Random.MersenneTwister(7))
+    sd2 = stochastic_drivers(hmm, obs_seq; rng=Random.MersenneTwister(7))
+    @test sd1.ε_pools == sd2.ε_pools
+    @test sd1.usage == sd2.usage
+
+    r1 = component_discrepancies(
+        hmm, obs_seq, KSDiscrepancy(); rng=Random.MersenneTwister(7)
+    )
+    r2 = component_discrepancies(
+        hmm, obs_seq, KSDiscrepancy(); rng=Random.MersenneTwister(7)
+    )
+    @test r1.component_discrepancies == r2.component_discrepancies
+
+    # Monte Carlo discrepancies are reproducible under a seeded rng too.
+    U = rand(Random.MersenneTwister(1), 2, 500)
+    w1 = compute_discrepancy(WassersteinDiscrepancy(), U; rng=Random.MersenneTwister(3))
+    w2 = compute_discrepancy(WassersteinDiscrepancy(), U; rng=Random.MersenneTwister(3))
+    @test w1 == w2
+    m1 = compute_discrepancy(MMDDiscrepancy(), U; rng=Random.MersenneTwister(3))
+    m2 = compute_discrepancy(MMDDiscrepancy(), U; rng=Random.MersenneTwister(3))
+    @test m1 == m2
+end
+
+@testset "Discrepancies accept any Real eltype" begin
+    rng = Random.MersenneTwister(6)
+    U32 = rand(rng, Float32, 2, 500)
+    # Default (Float64) discrepancies on Float32 pools compute at Float64.
+    @test compute_discrepancy(KSDiscrepancy(), U32) isa Float64
+    @test compute_discrepancy(KLDiscrepancy(), U32) isa Float64
+    @test compute_discrepancy(SquaredErrorDiscrepancy(), U32) isa Float64
+    @test compute_discrepancy(WassersteinDiscrepancy(), U32) isa Float64
+    @test compute_discrepancy(MMDDiscrepancy(), U32) isa Float64
 end

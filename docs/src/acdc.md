@@ -43,8 +43,9 @@ changes.
 ## Custom emissions
 
 To use ACDC with an emission type that is not a standard `Distributions` object,
-add a method `EmissionModels._emission_to_driver(dist, obs)` returning the driver
-vector in ``[0,1]``.
+add a method `EmissionModels._emission_to_driver(rng, dist, obs)` returning the
+driver vector in ``[0,1]``. Draw any randomness (e.g. for a randomized PIT) from
+`rng` so driver recovery stays reproducible.
 
 ## API Reference
 

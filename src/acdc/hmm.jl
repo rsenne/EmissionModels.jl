@@ -6,7 +6,7 @@
    with a custom driver method). =#
 
 """
-    stochastic_drivers(hmm::AbstractHMM, obs_seq; control_seq, seq_ends, n_samples=1)
+    stochastic_drivers(hmm::AbstractHMM, obs_seq; control_seq, seq_ends, n_samples=1, rng)
 
 Recover the ACDC stochastic drivers for a fitted HiddenMarkovModels.jl `hmm`.
 
@@ -26,6 +26,8 @@ posterior expected time spent in each state.
 - `seq_ends`: end indices when `obs_seq` concatenates multiple sequences; defaults
   to `(length(obs_seq),)`.
 - `n_samples::Int=1`: number of posterior sampling passes over the data.
+- `rng::AbstractRNG=Random.default_rng()`: source of randomness for the posterior
+  state sampling and the randomized PITs — seed it for reproducible drivers.
 
 # Returns
 - [`StochasticDriverResult`](@ref) with per-state driver pools and usage.
@@ -36,8 +38,10 @@ function stochastic_drivers(
     control_seq::AbstractVector=fill(nothing, length(obs_seq)),
     seq_ends=(length(obs_seq),),
     n_samples::Int=1,
+    rng::AbstractRNG=Random.default_rng(),
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive"))
+    isempty(obs_seq) && throw(ArgumentError("obs_seq must be non-empty"))
     T_len = length(obs_seq)
     K = length(hmm)
 
@@ -50,7 +54,7 @@ function stochastic_drivers(
     # Driver dimension from a probe on the first observation's sampled-state-able
     # emission (all states share the emission dimension in an HMM).
     probe = _emission_to_driver(
-        obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
+        rng, obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
     )
     D = length(probe)
     Tε = eltype(probe)
@@ -58,9 +62,9 @@ function stochastic_drivers(
     ε_lists = [Vector{Vector{Tε}}() for _ in 1:K]
     for _ in 1:n_samples
         for t in 1:T_len
-            z = _sample_categorical(view(γ, :, t))
+            z = _sample_categorical(rng, view(γ, :, t))
             dist = obs_distributions(hmm, control_seq[t])[z]
-            push!(ε_lists[z], _emission_to_driver(dist, obs_seq[t], control_seq[t]))
+            push!(ε_lists[z], _emission_to_driver(rng, dist, obs_seq[t], control_seq[t]))
         end
     end
 
