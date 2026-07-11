@@ -16,7 +16,8 @@ using StatsAPI
       vector per call. Thread-safe by design — the struct scratch was removed
       because two threads reading the same dist would race. Bound to 256 B/call.
     - All Mv rand!: 0 bytes (zero-alloc, thread-safe via in-place lmul!).
-    - fit! is bounded by O(p² + k²), independent of n.
+    - fit! is bounded by O(p² + k²) workspace plus (for Bernoulli/Poisson)
+      Optim's Newton solver state — a few KB, independent of n.
 
   Top-level `@allocated foo()` reports kwarg-lowering noise (~48 B) that
   does NOT exist in real loops — measure inside a function.
@@ -150,33 +151,35 @@ s)
         gmv = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         @test (@allocated fit!(gmv, ymv, w; control_seq=X)) ≤ 2_000
 
-        # BernoulliGLM/PoissonGLM: hand-rolled Newton.
-        # Workspace: g, H, Δ — three small alloc, total ~300 bytes for p=2.
+        # BernoulliGLM/PoissonGLM: Optim Newton via only_fgh! (fused analytic
+        # f/g/H, no finite differences, no O(n) temporaries). Solver state is
+        # O(p²) per fit — measured ~4-6 KB for p=2, independent of n.
         yb = Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:n]
         gb = BernoulliGLM(zeros(2))
         fit!(gb, yb, w; control_seq=X)
         gb = BernoulliGLM(zeros(2))
-        @test (@allocated fit!(gb, yb, w; control_seq=X)) ≤ 1_000
+        @test (@allocated fit!(gb, yb, w; control_seq=X)) ≤ 20_000
 
         yp = Int[rand(rng, 0:5) for _ in 1:n]
         gp = PoissonGLM(zeros(2))
         fit!(gp, yp, w; control_seq=X)
         gp = PoissonGLM(zeros(2))
-        @test (@allocated fit!(gp, yp, w; control_seq=X)) ≤ 1_000
+        @test (@allocated fit!(gp, yp, w; control_seq=X)) ≤ 20_000
 
-        # Multivariate Newton: workspace shared across columns. _ColumnElementView
-        # avoids the n-sized per-column copy that Vector-of-Vectors would force.
+        # Multivariate Newton: one Optim solve per column (k × O(p²) state).
+        # _ColumnElementView avoids the n-sized per-column copy that
+        # Vector-of-Vectors would force.
         ymb = [Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:2] for _ in 1:n]
         gmb = MvBernoulliGLM(zeros(2, 2))
         fit!(gmb, ymb, w; control_seq=X)
         gmb = MvBernoulliGLM(zeros(2, 2))
-        @test (@allocated fit!(gmb, ymb, w; control_seq=X)) ≤ 1_000
+        @test (@allocated fit!(gmb, ymb, w; control_seq=X)) ≤ 40_000
 
         ymp = [Int[rand(rng, 0:3) for _ in 1:2] for _ in 1:n]
         gmp = MvPoissonGLM(zeros(2, 2))
         fit!(gmp, ymp, w; control_seq=X)
         gmp = MvPoissonGLM(zeros(2, 2))
-        @test (@allocated fit!(gmp, ymp, w; control_seq=X)) ≤ 1_000
+        @test (@allocated fit!(gmp, ymp, w; control_seq=X)) ≤ 40_000
     end
 
     @testset "PoissonZeroInflated" begin

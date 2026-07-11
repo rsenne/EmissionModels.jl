@@ -10,8 +10,8 @@ using HiddenMarkovModels: AbstractHMM, obs_distributions, forward_backward
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic
 using NearestNeighbors: KDTree, knn
-using Optim: optimize, TwiceDifferentiable, Newton, LBFGS, LineSearches
-using Optim
+using Optim: Optim, optimize, TwiceDifferentiable, Newton
+using Optim.NLSolversBase: only_fgh!
 using Random
 using SpecialFunctions: logfactorial, loggamma, digamma, trigamma, polygamma
 using Statistics: mean, var, cov

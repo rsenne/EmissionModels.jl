@@ -191,10 +191,10 @@ function StatsAPI.fit!(
     return reg
 end
 
-#= Hand-rolled Newton solver shared by Bernoulli and Poisson GLM fits.
-   Avoids Optim's TwiceDifferentiable + closure-object allocations: workspace
-   buffers (g, H, Δ) are passed in by the caller, who allocates them once and
-   reuses across columns in the multivariate case. =#
+#= Optim-based Newton solver shared by Bernoulli and Poisson GLM fits. Each
+   family provides a fused `fgh!(F, G, H, β)` functor: objective, gradient and
+   Hessian computed in a single pass over the data mirrors the ν-update pattern 
+   in `multivariate/t.jl`. =#
 
 #= Lazy column accessor: indexing into a Vector{Vector{T}} along output dim j
    without copying. Used by the multivariate GLM fits to avoid an n-sized
@@ -210,52 +210,51 @@ Base.size(c::_ColumnElementView) = (length(c.seq),)
 Base.IndexStyle(::Type{<:_ColumnElementView}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(c::_ColumnElementView, i::Integer) = c.seq[i][c.j]
 
-function _bernoulli_loss(
-    β::AbstractVector{T},
-    y::AbstractVector,
-    w::AbstractVector{<:Real},
-    X::AbstractMatrix{<:Real},
-    prior::AbstractPrior,
-) where {T<:Real}
-    n, _ = size(X)
-    nll = zero(T)
-    for i in 1:n
-        x_i = view(X, i, :)
-        η_i = dot(β, x_i)
-        nll += T(w[i]) * (y[i] == 1 ? log1pexp(-η_i) : log1pexp(η_i))
-    end
-    return nll + neglogprior(prior, β)
+#= Fused Bernoulli negative log-posterior in the `fgh!(F, G, H, β)` form that
+   `Optim.only_fgh!` expects. `F`, `G`, `H` are `nothing` when Optim doesn't
+   need that piece on a given call; each nothing/array combination gets its own
+   JIT specialization, so skipped work is compiled away. =#
+struct _BernoulliFGH{
+    Y<:AbstractVector,W<:AbstractVector{<:Real},M<:AbstractMatrix{<:Real},P<:AbstractPrior
+}
+    y::Y
+    w::W
+    X::M
+    prior::P
 end
 
-function _bernoulli_gh!(
-    g::AbstractVector{T},
-    H::AbstractMatrix{T},
-    β::AbstractVector{T},
-    y::AbstractVector,
-    w::AbstractVector{<:Real},
-    X::AbstractMatrix{<:Real},
-    prior::AbstractPrior,
-) where {T<:Real}
-    n, p = size(X)
-    fill!(g, zero(T))
-    fill!(H, zero(T))
+function (o::_BernoulliFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
+    n, p = size(o.X)
+    G === nothing || fill!(G, zero(T))
+    H === nothing || fill!(H, zero(T))
+    nll = zero(T)
     for i in 1:n
-        x_i = view(X, i, :)
-        wi = T(w[i])
-        μ_i = logistic(dot(β, x_i))
-        r_i = wi * (μ_i - T(y[i]))
-        W_i = wi * μ_i * (one(T) - μ_i)
-        for a in 1:p
-            xa = x_i[a]
-            g[a] += r_i * xa
-            wxa = W_i * xa
-            for b in 1:p
-                H[a, b] += wxa * x_i[b]
+        x_i = view(o.X, i, :)
+        wi = T(o.w[i])
+        η_i = dot(β, x_i)
+        y_i = o.y[i]
+        if F !== nothing
+            nll += wi * (y_i == 1 ? log1pexp(-η_i) : log1pexp(η_i))
+        end
+        if G !== nothing || H !== nothing
+            μ_i = logistic(η_i)
+            r_i = wi * (μ_i - T(y_i))
+            W_i = wi * μ_i * (one(T) - μ_i)
+            for a in 1:p
+                xa = x_i[a]
+                G === nothing || (G[a] += r_i * xa)
+                if H !== nothing
+                    wxa = W_i * xa
+                    for b in 1:p
+                        H[a, b] += wxa * x_i[b]
+                    end
+                end
             end
         end
     end
-    neglogprior_grad!(prior, g, β)
-    neglogprior_hess!(prior, H, β)
+    G === nothing || neglogprior_grad!(o.prior, G, β)
+    H === nothing || neglogprior_hess!(o.prior, H, β)
+    F === nothing || return nll + neglogprior(o.prior, β)
     return nothing
 end
 
@@ -265,126 +264,61 @@ end
    constant, which was both Float64-only and a magic number. =#
 @inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
 
-function _poisson_loss(
-    β::AbstractVector{T},
-    y::AbstractVector,
-    w::AbstractVector{<:Real},
-    X::AbstractMatrix{<:Real},
-    prior::AbstractPrior,
-) where {T<:Real}
-    n, _ = size(X)
+# Fused Poisson negative log-posterior, same `fgh!(F, G, H, β)` contract as
+# `_BernoulliFGH`.
+struct _PoissonFGH{
+    Y<:AbstractVector,W<:AbstractVector{<:Real},M<:AbstractMatrix{<:Real},P<:AbstractPrior
+}
+    y::Y
+    w::W
+    X::M
+    prior::P
+end
+
+function (o::_PoissonFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
+    n, p = size(o.X)
+    G === nothing || fill!(G, zero(T))
+    H === nothing || fill!(H, zero(T))
     nll = zero(T)
     η_max = _η_bound(T)
     for i in 1:n
-        x_i = view(X, i, :)
-        η_i = clamp(dot(β, x_i), -η_max, η_max)
-        nll += T(w[i]) * (exp(η_i) - T(y[i]) * η_i)
-    end
-    return nll + neglogprior(prior, β)
-end
-
-function _poisson_gh!(
-    g::AbstractVector{T},
-    H::AbstractMatrix{T},
-    β::AbstractVector{T},
-    y::AbstractVector,
-    w::AbstractVector{<:Real},
-    X::AbstractMatrix{<:Real},
-    prior::AbstractPrior,
-) where {T<:Real}
-    n, p = size(X)
-    fill!(g, zero(T))
-    fill!(H, zero(T))
-    η_max = _η_bound(T)
-    for i in 1:n
-        x_i = view(X, i, :)
-        wi = T(w[i])
+        x_i = view(o.X, i, :)
+        wi = T(o.w[i])
         η_i = clamp(dot(β, x_i), -η_max, η_max)
         eη = exp(η_i)
-        r_i = wi * (eη - T(y[i]))
-        W_i = wi * eη
-        for a in 1:p
-            xa = x_i[a]
-            g[a] += r_i * xa
-            wxa = W_i * xa
-            for b in 1:p
-                H[a, b] += wxa * x_i[b]
+        y_i = T(o.y[i])
+        if F !== nothing
+            nll += wi * (eη - y_i * η_i)
+        end
+        if G !== nothing || H !== nothing
+            r_i = wi * (eη - y_i)
+            W_i = wi * eη
+            for a in 1:p
+                xa = x_i[a]
+                G === nothing || (G[a] += r_i * xa)
+                if H !== nothing
+                    wxa = W_i * xa
+                    for b in 1:p
+                        H[a, b] += wxa * x_i[b]
+                    end
+                end
             end
         end
     end
-    neglogprior_grad!(prior, g, β)
-    neglogprior_hess!(prior, H, β)
+    G === nothing || neglogprior_grad!(o.prior, G, β)
+    H === nothing || neglogprior_hess!(o.prior, H, β)
+    F === nothing || return nll + neglogprior(o.prior, β)
     return nothing
 end
 
-#= Newton with backtracking line search. `loss` and `gh!` are concrete callables
-   (one per family). With type-stable inputs the JIT specializes and the inner
-   loop is allocation-free aside from `cholesky!`'s internal work. =#
-function _newton_solve!(
-    β::AbstractVector{T},
-    g::AbstractVector{T},
-    H::AbstractMatrix{T},
-    Δ::AbstractVector{T},
-    loss::F1,
-    gh!::F2,
-    y::AbstractVector,
-    w::AbstractVector{<:Real},
-    X::AbstractMatrix{<:Real},
-    prior::AbstractPrior;
-    max_iter::Int=50,
-    gtol::Real=1e-8,
-    max_backtrack::Int=20,
-    ridge::Real=1e-12,
-) where {T<:Real,F1,F2}
-    p = length(β)
-    f_curr = loss(β, y, w, X, prior)
-
-    for _ in 1:max_iter
-        gh!(g, H, β, y, w, X, prior)
-
-        gnorm = zero(T)
-        for j in 1:p
-            ag = abs(g[j])
-            ag > gnorm && (gnorm = ag)
-        end
-        gnorm < gtol && break
-
-        # Tiny ridge for numerical PD (Bernoulli/Poisson Hessians are PSD and
-        # PD when X has full column rank; this guards against rare singular cases).
-        for j in 1:p
-            H[j, j] += T(ridge)
-        end
-
-        F = cholesky!(Symmetric(H, :L))
-        copyto!(Δ, g)
-        ldiv!(F, Δ)
-
-        # Backtracking line search: halve α until the loss decreases.
-        α = one(T)
-        success = false
-        f_new = f_curr
-        for _ in 0:max_backtrack
-            for j in 1:p
-                β[j] -= α * Δ[j]
-            end
-            f_new = loss(β, y, w, X, prior)
-            if isfinite(f_new) && f_new < f_curr
-                success = true
-                break
-            end
-            for j in 1:p
-                β[j] += α * Δ[j]
-            end
-            α /= 2
-        end
-        success || break
-        f_curr = f_new
-    end
+function _newton_fit!(β::Vector{T}, fgh::F; max_iter::Int, gtol::Real) where {T<:Real,F}
+    td = TwiceDifferentiable(only_fgh!(fgh), β)
+    result = optimize(td, β, Newton(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
+    copyto!(β, Optim.minimizer(result))
     return β
 end
 
-#= Internal helpers used by univariate `BernoulliGLM.fit!` / `PoissonGLM.fit!`.
-   Allocate the Newton workspace (g, H, Δ) — three small vectors / one matrix. =#
+# Internal helpers used by univariate `BernoulliGLM.fit!` / `PoissonGLM.fit!`.
 function _fit_bernoulli_glm!(
     β::Vector{T},
     obs_seq::AbstractVector,
@@ -393,7 +327,6 @@ function _fit_bernoulli_glm!(
     prior::AbstractPrior;
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
@@ -404,24 +337,8 @@ function _fit_bernoulli_glm!(
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
-    g = Vector{T}(undef, p)
-    H = Matrix{T}(undef, p, p)
-    Δ = Vector{T}(undef, p)
-    return _newton_solve!(
-        β,
-        g,
-        H,
-        Δ,
-        _bernoulli_loss,
-        _bernoulli_gh!,
-        obs_seq,
-        weight_seq,
-        control_seq,
-        prior;
-        max_iter=max_iter,
-        gtol=gtol,
-        max_backtrack=max_backtrack,
-    )
+    fgh = _BernoulliFGH(obs_seq, weight_seq, control_seq, prior)
+    return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
 end
 
 function _fit_poisson_glm!(
@@ -432,7 +349,6 @@ function _fit_poisson_glm!(
     prior::AbstractPrior;
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
@@ -443,24 +359,8 @@ function _fit_poisson_glm!(
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
-    g = Vector{T}(undef, p)
-    H = Matrix{T}(undef, p, p)
-    Δ = Vector{T}(undef, p)
-    return _newton_solve!(
-        β,
-        g,
-        H,
-        Δ,
-        _poisson_loss,
-        _poisson_gh!,
-        obs_seq,
-        weight_seq,
-        control_seq,
-        prior;
-        max_iter=max_iter,
-        gtol=gtol,
-        max_backtrack=max_backtrack,
-    )
+    fgh = _PoissonFGH(obs_seq, weight_seq, control_seq, prior)
+    return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
 end
 
 """
@@ -469,9 +369,9 @@ end
 Logistic-regression emission for binary (0/1) observations.
 
 P(Y=1|x) = σ(xᵀβ) where σ is the logistic function. `fit!` minimizes the
-weighted negative log-posterior via a hand-rolled Newton solver with
-backtracking line search, so any `AbstractPrior` composes without changes
-to the solver.
+weighted negative log-posterior via Optim's Newton method with analytic
+gradient and Hessian, so any `AbstractPrior` composes without changes to
+the solver.
 
 # Fields
 - `β`: coefficient vector (length p)
@@ -524,12 +424,12 @@ end
 
 """
     fit!(glm::BernoulliGLM, obs_seq, weight_seq;
-         control_seq, max_iter=50, gtol=1e-8, max_backtrack=20)
+         control_seq, max_iter=50, gtol=1e-8)
 
-Minimize the weighted negative log-posterior via a hand-rolled Newton solver
-with backtracking line search. The objective is
-`Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the Bernoulli
-log-likelihood; gradient and Hessian are analytic.
+Minimize the weighted negative log-posterior via Optim's Newton method. The
+objective is `Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the
+Bernoulli log-likelihood; gradient and Hessian are analytic, supplied through
+a fused `fgh!`.
 """
 function StatsAPI.fit!(
     glm::BernoulliGLM,
@@ -538,17 +438,9 @@ function StatsAPI.fit!(
     control_seq::AbstractMatrix{<:Real},
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 )
     _fit_bernoulli_glm!(
-        glm.β,
-        obs_seq,
-        weight_seq,
-        control_seq,
-        glm.prior;
-        max_iter=max_iter,
-        gtol=gtol,
-        max_backtrack=max_backtrack,
+        glm.β, obs_seq, weight_seq, control_seq, glm.prior; max_iter=max_iter, gtol=gtol
     )
     return glm
 end
@@ -559,7 +451,7 @@ end
 Log-linear (Poisson) regression emission for count observations.
 
 E[Y|x] = exp(xᵀβ). `fit!` minimizes the weighted negative log-posterior via
-a hand-rolled Newton solver with backtracking line search. Any `AbstractPrior`
+Optim's Newton method with analytic gradient and Hessian. Any `AbstractPrior`
 composes without changes to the solver.
 
 # Fields
@@ -608,12 +500,12 @@ end
 
 """
     fit!(glm::PoissonGLM, obs_seq, weight_seq;
-         control_seq, max_iter=50, gtol=1e-8, max_backtrack=20)
+         control_seq, max_iter=50, gtol=1e-8)
 
-Minimize the weighted negative log-posterior via a hand-rolled Newton solver
-with backtracking line search. The objective is
-`Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the Poisson
-log-likelihood; gradient and Hessian are analytic.
+Minimize the weighted negative log-posterior via Optim's Newton method. The
+objective is `Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the
+Poisson log-likelihood; gradient and Hessian are analytic, supplied through
+a fused `fgh!`.
 """
 function StatsAPI.fit!(
     glm::PoissonGLM,
@@ -622,17 +514,9 @@ function StatsAPI.fit!(
     control_seq::AbstractMatrix{<:Real},
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 )
     _fit_poisson_glm!(
-        glm.β,
-        obs_seq,
-        weight_seq,
-        control_seq,
-        glm.prior;
-        max_iter=max_iter,
-        gtol=gtol,
-        max_backtrack=max_backtrack,
+        glm.β, obs_seq, weight_seq, control_seq, glm.prior; max_iter=max_iter, gtol=gtol
     )
     return glm
 end
@@ -1025,11 +909,12 @@ end
 
 """
     fit!(glm::MvBernoulliGLM, obs_seq, weight_seq;
-         control_seq, max_iter=50, gtol=1e-8, max_backtrack=20)
+         control_seq, max_iter=50, gtol=1e-8)
 
-Fit each output dimension independently via weighted Newton. Each observation
-`obs_seq[i]` must be a length-`k` vector of 0/1 values. Newton workspace
-(`g`, `H`, `Δ`) is allocated once and shared across columns.
+Fit each output dimension independently via Optim's Newton method. Each
+observation `obs_seq[i]` must be a length-`k` vector of 0/1 values.
+`_ColumnElementView` presents column `j` of the observations lazily, so no
+n-sized y-buffer is copied per column.
 """
 function StatsAPI.fit!(
     glm::MvBernoulliGLM{T},
@@ -1038,7 +923,6 @@ function StatsAPI.fit!(
     control_seq::AbstractMatrix{<:Real},
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
@@ -1057,31 +941,13 @@ function StatsAPI.fit!(
     end
 
     β_buf = Vector{T}(undef, p)
-    g = Vector{T}(undef, p)
-    H = Matrix{T}(undef, p, p)
-    Δ = Vector{T}(undef, p)
-
     for j in 1:k
-        yview = _ColumnElementView(obs_seq, j)
-        copyto!(β_buf, view(glm.B, :, j))
-        _newton_solve!(
-            β_buf,
-            g,
-            H,
-            Δ,
-            _bernoulli_loss,
-            _bernoulli_gh!,
-            yview,
-            weight_seq,
-            control_seq,
-            glm.prior;
-            max_iter=max_iter,
-            gtol=gtol,
-            max_backtrack=max_backtrack,
+        fgh = _BernoulliFGH(
+            _ColumnElementView(obs_seq, j), weight_seq, control_seq, glm.prior
         )
-        for r in 1:p
-            glm.B[r, j] = β_buf[r]
-        end
+        copyto!(β_buf, view(glm.B, :, j))
+        _newton_fit!(β_buf, fgh; max_iter=max_iter, gtol=gtol)
+        copyto!(view(glm.B, :, j), β_buf)
     end
     return glm
 end
@@ -1195,11 +1061,12 @@ end
 
 """
     fit!(glm::MvPoissonGLM, obs_seq, weight_seq;
-         control_seq, max_iter=50, gtol=1e-8, max_backtrack=20)
+         control_seq, max_iter=50, gtol=1e-8)
 
-Fit each output dimension independently via weighted Newton. Each observation
-`obs_seq[i]` must be a length-`k` vector of non-negative integers. Newton
-workspace (`g`, `H`, `Δ`) is allocated once and shared across columns.
+Fit each output dimension independently via Optim's Newton method. Each
+observation `obs_seq[i]` must be a length-`k` vector of non-negative integers.
+`_ColumnElementView` presents column `j` of the observations lazily, so no
+n-sized y-buffer is copied per column.
 """
 function StatsAPI.fit!(
     glm::MvPoissonGLM{T},
@@ -1208,7 +1075,6 @@ function StatsAPI.fit!(
     control_seq::AbstractMatrix{<:Real},
     max_iter::Int=50,
     gtol::Real=1e-8,
-    max_backtrack::Int=20,
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
@@ -1227,31 +1093,13 @@ function StatsAPI.fit!(
     end
 
     β_buf = Vector{T}(undef, p)
-    g = Vector{T}(undef, p)
-    H = Matrix{T}(undef, p, p)
-    Δ = Vector{T}(undef, p)
-
     for j in 1:k
-        yview = _ColumnElementView(obs_seq, j)
-        copyto!(β_buf, view(glm.B, :, j))
-        _newton_solve!(
-            β_buf,
-            g,
-            H,
-            Δ,
-            _poisson_loss,
-            _poisson_gh!,
-            yview,
-            weight_seq,
-            control_seq,
-            glm.prior;
-            max_iter=max_iter,
-            gtol=gtol,
-            max_backtrack=max_backtrack,
+        fgh = _PoissonFGH(
+            _ColumnElementView(obs_seq, j), weight_seq, control_seq, glm.prior
         )
-        for r in 1:p
-            glm.B[r, j] = β_buf[r]
-        end
+        copyto!(β_buf, view(glm.B, :, j))
+        _newton_fit!(β_buf, fgh; max_iter=max_iter, gtol=gtol)
+        copyto!(view(glm.B, :, j), β_buf)
     end
     return glm
 end
