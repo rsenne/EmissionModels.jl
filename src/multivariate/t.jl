@@ -46,7 +46,9 @@ mutable struct MultivariateT{T<:Real}
 
         logdetΣ = logdet(Σ_chol)
 
-        return new{T}(μ, Σ, ν, Σ_chol, logdetΣ, dim)
+        #= Copy μ and Σ so the struct never aliases caller arrays: an external
+           mutation of Σ would silently desync the cached Cholesky/logdetΣ. =#
+        return new{T}(copy(μ), copy(Σ), ν, Σ_chol, logdetΣ, dim)
     end
 end
 
@@ -104,7 +106,9 @@ mutable struct MultivariateTDiag{T<:Real}
 
         logdetΣ = sum(log, σ²)
 
-        return new{T}(μ, σ², ν, logdetΣ, dim)
+        # Copy so the struct never aliases caller arrays (mutating σ² externally
+        # would silently desync the cached logdetΣ).
+        return new{T}(copy(μ), copy(σ²), ν, logdetΣ, dim)
     end
 end
 
@@ -128,8 +132,14 @@ DensityInterface.DensityKind(::MultivariateTDiag) = DensityInterface.HasDensity(
    only in how `mahal²` and `logdetΣ` are formed, so the normalisation constant
    and the `log1p` tail are defined here once. =#
 function _t_logpdf(ν, d, logdetΣ, mahal²)
-    log_norm = loggamma((ν + d) / 2) - loggamma(ν / 2) - (d / 2) * log(ν * π) - logdetΣ / 2
-    return log_norm - ((ν + d) / 2) * log1p(mahal² / ν)
+    #= Work in the common float type of the inputs; `d` enters via T(d) so the
+       integer never promotes a Float32 computation to Float64. =#
+    T = float(promote_type(typeof(ν), typeof(logdetΣ), typeof(mahal²)))
+    νT = T(ν)
+    half_νd = (νT + T(d)) / 2
+    log_norm =
+        loggamma(half_νd) - loggamma(νT / 2) - (T(d) / 2) * log(νT * T(π)) - T(logdetΣ) / 2
+    return log_norm - half_νd * log1p(T(mahal²) / νT)
 end
 
 """
@@ -198,6 +208,17 @@ function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag)
     u = rand(rng, Chisq(dist.ν))
     z = randn(rng, dist.dim)
     return dist.μ .+ sqrt(dist.ν / u) .* sqrt.(dist.σ²) .* z
+end
+
+#= Array forms (`rand(dist, n)` etc.) go through Random's sampler machinery,
+   which needs the sample eltype and a method on the default trivial sampler.
+   Samples are length-`dim` vectors, matching the obs_seq convention. =#
+Base.eltype(::Type{MultivariateT{T}}) where {T<:Real} = Vector{T}
+Base.eltype(::Type{MultivariateTDiag{T}}) where {T<:Real} = Vector{T}
+function Random.rand(
+    rng::AbstractRNG, sp::Random.SamplerTrivial{<:Union{MultivariateT,MultivariateTDiag}}
+)
+    return rand(rng, sp[])
 end
 
 #= ECME degrees-of-freedom update, shared by the `MultivariateT` and

@@ -230,3 +230,14 @@ include("../hmm_utils.jl")
         @test all(0.2 <= dist.π <= 0.5 for dist in hmm_custom.dists)
     end
 end
+
+@testset "Array sampling API" begin
+    rng = Random.MersenneTwister(42)
+    dist = PoissonZeroInflated(3.0, 0.2)
+    samples = rand(rng, dist, 100)
+    @test samples isa Vector{Int}
+    @test length(samples) == 100
+    @test all(s >= 0 for s in samples)
+    # The docstring form without an explicit rng.
+    @test rand(dist, 5) isa Vector{Int}
+end
