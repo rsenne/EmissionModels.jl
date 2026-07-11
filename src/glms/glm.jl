@@ -311,7 +311,6 @@ function (o::_PoissonFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
     return nothing
 end
 
-
 function _newton_fit!(β::Vector{T}, fgh::F; max_iter::Int, gtol::Real) where {T<:Real,F}
     td = TwiceDifferentiable(only_fgh!(fgh), β)
     result = optimize(td, β, Newton(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
