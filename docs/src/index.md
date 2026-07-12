@@ -36,6 +36,8 @@ hmm_est, loglik_trace = baum_welch(hmm, obs_seq)
 
 ## Where to go from here
 
+- [Tutorials](examples/basics.md): worked examples, from built-in emissions
+  to GLMs and model selection.
 - [Distributions](distributions.md): all available count and multivariate
   emission models.
 - [GLM Emissions](glm.md): regression-based emissions that take a control

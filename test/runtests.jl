@@ -35,6 +35,20 @@ using JuliaFormatter
         include("acdc/test_acdc.jl")
     end
 
+    #= The Literate tutorials double as integration tests: their `@test` lines
+       are hidden from the rendered docs with `#src` but run here as ordinary
+       code. =#
+    @testset "Examples" begin
+        examples_path = joinpath(dirname(@__DIR__), "examples")
+        for file in readdir(examples_path)
+            if endswith(file, ".jl")
+                @testset "Example - $file" begin
+                    include(joinpath(examples_path, file))
+                end
+            end
+        end
+    end
+
     @testset "Allocations" begin
         include("allocations.jl")
     end
