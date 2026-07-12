@@ -592,3 +592,33 @@ end
     distd = MultivariateTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
     @test logdensityof(distd, Float32[0.1, 0.2]) isa Float32
 end
+
+@testset "ν M-step stays finite on near-Gaussian data" begin
+    # Gaussian observations push the ECME ν update toward ∞; the bracketed
+    # solver must return a finite (capped) ν instead of overflowing.
+    rng = Random.MersenneTwister(202)
+    obs = [randn(rng, 2) for _ in 1:2000]
+    w = ones(2000)
+    dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+    fit!(dist, obs, w; max_iter=100)
+    @test isfinite(dist.ν)
+    @test dist.ν <= 1.0e6
+    @test all(isfinite, dist.μ)
+    @test all(isfinite, dist.Σ)
+end
+
+@testset "rand! in-place sampling" begin
+    rng = Random.MersenneTwister(303)
+    dist = MultivariateT([2.0, -1.0], [2.0 0.8; 0.8 1.5], 10.0)
+    out = zeros(2)
+    @test rand!(rng, dist, out) === out
+    @test_throws DimensionMismatch rand!(rng, dist, zeros(3))
+    S = reduce(hcat, (copy(rand!(rng, dist, out)) for _ in 1:20_000))
+    @test vec(mean(S; dims=2)) ≈ dist.μ atol = 0.1
+
+    distd = MultivariateTDiag([1.0, -2.0], [1.0, 2.0], 8.0)
+    @test rand!(rng, distd, out) === out
+    @test_throws DimensionMismatch rand!(rng, distd, zeros(3))
+    Sd = reduce(hcat, (copy(rand!(rng, distd, out)) for _ in 1:20_000))
+    @test vec(mean(Sd; dims=2)) ≈ distd.μ atol = 0.1
+end

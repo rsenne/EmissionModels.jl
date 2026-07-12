@@ -193,10 +193,29 @@ Generate a random sample from the multivariate t-distribution.
 Uses the representation: X = μ + √(ν/U) × Z
 where Z ~ N(0, Σ) and U ~ χ²(ν) are independent.
 """
-function Random.rand(rng::AbstractRNG, dist::MultivariateT)
+function Random.rand(rng::AbstractRNG, dist::MultivariateT{T}) where {T<:Real}
+    return rand!(rng, dist, Vector{T}(undef, dist.dim))
+end
+
+"""
+    rand!(rng, dist::MultivariateT, out)
+
+In-place sample into `out` (length `dim`). Zero allocation, thread-safe: draw
+`z ~ N(0, I)` directly into `out`, multiply by the Cholesky factor in place
+(`lmul!`), then scale by √(ν/u) and shift by μ element-wise.
+"""
+function Random.rand!(rng::AbstractRNG, dist::MultivariateT, out::AbstractVector)
+    length(out) == dist.dim ||
+        throw(DimensionMismatch("out length $(length(out)) ≠ dim $(dist.dim)"))
+
     u = rand(rng, Chisq(dist.ν))
-    z = randn(rng, dist.dim)
-    return dist.μ .+ sqrt(dist.ν / u) .* (dist.Σ_chol.L * z)
+    s = sqrt(dist.ν / u)
+    randn!(rng, out)
+    lmul!(dist.Σ_chol.L, out)        # out = L * z, in place
+    for i in 1:(dist.dim)
+        out[i] = dist.μ[i] + s * out[i]
+    end
+    return out
 end
 
 """
@@ -204,10 +223,26 @@ end
 
 Generate a random sample from the diagonal multivariate t-distribution.
 """
-function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag)
+function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag{T}) where {T<:Real}
+    return rand!(rng, dist, Vector{T}(undef, dist.dim))
+end
+
+"""
+    rand!(rng, dist::MultivariateTDiag, out)
+
+In-place sample into `out` (length `dim`). Zero allocation, thread-safe.
+"""
+function Random.rand!(rng::AbstractRNG, dist::MultivariateTDiag, out::AbstractVector)
+    length(out) == dist.dim ||
+        throw(DimensionMismatch("out length $(length(out)) ≠ dim $(dist.dim)"))
+
     u = rand(rng, Chisq(dist.ν))
-    z = randn(rng, dist.dim)
-    return dist.μ .+ sqrt(dist.ν / u) .* sqrt.(dist.σ²) .* z
+    s = sqrt(dist.ν / u)
+    randn!(rng, out)
+    for i in 1:(dist.dim)
+        out[i] = dist.μ[i] + s * sqrt(dist.σ²[i]) * out[i]
+    end
+    return out
 end
 
 #= Array forms (`rand(dist, n)` etc.) go through Random's sampler machinery,
@@ -222,67 +257,49 @@ function Random.rand(
 end
 
 #= ECME degrees-of-freedom update, shared by the `MultivariateT` and
-   `MultivariateTDiag` fits. The t-distribution ν M-step minimises f(ν)² over
-   x = log ν (log-space keeps ν > 0), where the stationarity condition is
+   `MultivariateTDiag` fits. The ν M-step solves the stationarity condition
 
-       f(ν) = -ψ(ν/2) + log(ν/2) + 1 + C + ψ((ν+d)/2) - log((ν+d)/2),
+       f(ν) = -ψ(ν/2) + log(ν/2) + 1 + C + ψ((ν+d)/2) - log((ν+d)/2) = 0,
 
-   and C = Σᵢ w̃ᵢ (log uᵢ - uᵢ) is the supplied `avg_log_u_minus_u` (uᵢ are the
-   per-observation posterior weights). Solved with Optim's Newton using the
-   analytic gradient and Hessian.
-
-   The objective/gradient/Hessian are top-level callable structs (functors)
-   parameterised by `(C, d)`, not closures defined inside `_update_nu`: their
-   method bodies compile once, so each ν M-step only instantiates three tiny
-   immutable structs instead of rebuilding closures on every call. `_nu_f` /
-   `_nu_df` / `_nu_d2f` hold the single definition of the residual and its
-   ν-derivatives, shared by all three functors. =#
+   where C = Σᵢ w̃ᵢ (log uᵢ - uᵢ) is the supplied `avg_log_u_minus_u` (uᵢ are the
+   per-observation posterior weights). f decreases from +∞ (ν → 0) to 1 + C ≤ 0
+   (ν → ∞; log u - u ≤ -1 by Jensen), so a bracketed Newton on x = log ν with
+   bisection fallback always converges. This runs once per EM iteration, so it
+   is solved inline rather than through Optim: zero allocations, and the
+   bracket doubles as a hard cap — near-Gaussian data (C → -1) pushes the root
+   toward ν = ∞, and the cap returns a large-but-finite ν instead of letting
+   exp(x) overflow into the next E-step. =#
 function _nu_f(ν, C, d)
     return -digamma(ν / 2) + log(ν / 2) + 1 + C + digamma((ν + d) / 2) - log((ν + d) / 2)
 end
 _nu_df(ν, d) = -0.5 * trigamma(ν / 2) + 1 / ν + 0.5 * trigamma((ν + d) / 2) - 1 / (ν + d)
-function _nu_d2f(ν, d)
-    return -0.25 * polygamma(2, ν / 2) - 1 / ν^2 +
-           0.25 * polygamma(2, (ν + d) / 2) +
-           1 / (ν + d)^2
-end
-
-struct _NuObjective{T}
-    C::T
-    d::Int
-end
-(o::_NuObjective)(x::Vector) = _nu_f(exp(x[1]), o.C, o.d)^2
-
-struct _NuGradient{T}
-    C::T
-    d::Int
-end
-function (g::_NuGradient)(G, x::Vector)
-    ν = exp(x[1])
-    G[1] = 2 * _nu_f(ν, g.C, g.d) * _nu_df(ν, g.d) * ν
-    return G
-end
-
-struct _NuHessian{T}
-    C::T
-    d::Int
-end
-function (h::_NuHessian)(H, x::Vector)
-    ν = exp(x[1])
-    f = _nu_f(ν, h.C, h.d)
-    df = _nu_df(ν, h.d)
-    d2f = _nu_d2f(ν, h.d)
-    H[1, 1] = (2 * df^2 + 2 * f * d2f) * ν^2 + 2 * f * df * ν
-    return H
-end
 
 function _update_nu(ν0::Real, avg_log_u_minus_u, d::Integer)
     C = avg_log_u_minus_u
-    td = TwiceDifferentiable(
-        _NuObjective(C, d), _NuGradient(C, d), _NuHessian(C, d), [log(ν0)]
-    )
-    result = optimize(td, [log(ν0)], Newton())
-    return exp(Optim.minimizer(result)[1])
+    T = float(promote_type(typeof(ν0), typeof(C)))
+    ν_lo, ν_hi = T(1e-2), T(1e6)
+    _nu_f(ν_lo, C, d) <= 0 && return ν_lo
+    _nu_f(ν_hi, C, d) >= 0 && return ν_hi
+
+    lo, hi = log(ν_lo), log(ν_hi)
+    x = clamp(log(T(ν0)), lo, hi)
+    tol = sqrt(eps(T))
+    for _ in 1:100
+        ν = exp(x)
+        fx = _nu_f(ν, C, d)
+        abs(fx) < tol && break
+        # Maintain the sign-change bracket (f decreasing: f(lo) > 0 > f(hi)).
+        if fx > 0
+            lo = x
+        else
+            hi = x
+        end
+        # Newton step in log-space; bisect whenever it leaves the bracket.
+        x_new = x - fx / (_nu_df(ν, d) * ν)
+        x = lo < x_new < hi ? x_new : (lo + hi) / 2
+        hi - lo < tol && break
+    end
+    return exp(x)
 end
 
 #= 

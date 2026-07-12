@@ -13,7 +13,7 @@ using NearestNeighbors: KDTree, knn
 using Optim: Optim, optimize, TwiceDifferentiable, Newton
 using Optim.NLSolversBase: only_fgh!
 using Random
-using SpecialFunctions: logfactorial, loggamma, digamma, trigamma, polygamma
+using SpecialFunctions: logfactorial, loggamma, digamma, trigamma
 using Statistics: mean, var, cov
 using StatsAPI
 using StatsAPI: fit!

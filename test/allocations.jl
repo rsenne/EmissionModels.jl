@@ -66,6 +66,12 @@ for _ in 1:n
     s += rand(rng, d)[1]
 end;
 s)
+bench_rand!_unctrl(rng, d, out, n) = (s = 0.0;
+for _ in 1:n
+    rand!(rng, d, out)
+    s += out[1]
+end;
+s)
 
 @testset "Allocations (steady state)" begin
     rng = Random.MersenneTwister(0)
@@ -199,7 +205,8 @@ s)
         zip2 = PoissonZeroInflated(1.0, 0.1)
         fit!(zip2, y, w)
         zip2 = PoissonZeroInflated(1.0, 0.1)
-        @test (@allocated fit!(zip2, y, w)) ≤ 8_000
+        # No n-length mask anymore (all(iszero, ...)) — accumulators only.
+        @test (@allocated fit!(zip2, y, w)) ≤ 1_000
     end
 
     @testset "MultivariateT (full Σ)" begin
@@ -212,9 +219,14 @@ s)
         bench_logd_unctrl(mvt, xv, 1)
         @test (@allocated bench_logd_unctrl(mvt, xv, REPS)) ≤ 256 * REPS
 
+        # rand! into a pre-allocated buffer — zero alloc.
+        out = zeros(d)
+        bench_rand!_unctrl(rng, mvt, out, 1)
+        @test (@allocated bench_rand!_unctrl(rng, mvt, out, REPS)) <= ALLOC_SLOP
+
+        # rand allocates only the returned vector.
         bench_rand_unctrl_vec(rng, mvt, 1)
-        # rand still allocates the return vector; bound it loosely.
-        @test (@allocated bench_rand_unctrl_vec(rng, mvt, REPS)) ≤ 600 * REPS
+        @test (@allocated bench_rand_unctrl_vec(rng, mvt, REPS)) ≤ 256 * REPS
 
         n = 500
         obs = [randn(rng, d) for _ in 1:n]
@@ -222,8 +234,9 @@ s)
         mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
         fit!(mvt2, obs, w; max_iter=5)
         mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
-        # ν step still goes through Optim — loose bound.
-        @test (@allocated fit!(mvt2, obs, w; max_iter=5)) ≤ 1_000_000
+        # Per-call workspace (posterior weights, μ/scale buffers, Cholesky);
+        # the ν step is an inline allocation-free Newton. Measured ~5 KB.
+        @test (@allocated fit!(mvt2, obs, w; max_iter=5)) ≤ 20_000
     end
 
     @testset "MultivariateTDiag" begin
@@ -234,8 +247,12 @@ s)
         bench_logd_unctrl(mvtd, xv, 1)
         @test (@allocated bench_logd_unctrl(mvtd, xv, REPS)) <= ALLOC_SLOP
 
+        out = zeros(d)
+        bench_rand!_unctrl(rng, mvtd, out, 1)
+        @test (@allocated bench_rand!_unctrl(rng, mvtd, out, REPS)) <= ALLOC_SLOP
+
         bench_rand_unctrl_vec(rng, mvtd, 1)
-        @test (@allocated bench_rand_unctrl_vec(rng, mvtd, REPS)) ≤ 400 * REPS
+        @test (@allocated bench_rand_unctrl_vec(rng, mvtd, REPS)) ≤ 256 * REPS
 
         n = 500
         obs = [randn(rng, d) for _ in 1:n]
@@ -243,6 +260,6 @@ s)
         mvtd2 = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(mvtd2, obs, w; max_iter=5)
         mvtd2 = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
-        @test (@allocated fit!(mvtd2, obs, w; max_iter=5)) ≤ 500_000
+        @test (@allocated fit!(mvtd2, obs, w; max_iter=5)) ≤ 20_000
     end
 end

@@ -119,8 +119,7 @@ function StatsAPI.fit!(
     end
 
     epsilon = eps(typeof(dist.λ))
-    zero_mask = obs_seq .== 0
-    if sum(zero_mask) == length(obs_seq)
+    if all(iszero, obs_seq)
         dist.π = 1.0 - epsilon
         dist.λ = epsilon
         return dist
