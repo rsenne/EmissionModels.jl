@@ -1136,6 +1136,329 @@ function StatsAPI.fit!(
     return glm
 end
 
+#= Fused multinomial-logistic negative log-posterior, same `fgh!(F, G, H, β)`
+   contract as `_BernoulliFGH`. Categories 1..k are the non-reference ones
+   (η_K = 0); β is the flattened p×k coefficient matrix in column-major order,
+   so β[(j-1)p + a] = B[a, j]. `prob` is an owned length-k workspace reused
+   across calls: it first holds the linear predictors η_j of the current
+   observation, then is overwritten in place with the softmax probabilities. =#
+struct _MultinomialFGH{
+    Y<:AbstractVector,
+    W<:AbstractVector{<:Real},
+    M<:AbstractMatrix{<:Real},
+    P<:AbstractPrior,
+    T<:Real,
+}
+    y::Y
+    w::W
+    X::M
+    prior::P
+    k::Int
+    prob::Vector{T}
+end
+
+function (o::_MultinomialFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
+    n, p = size(o.X)
+    k = o.k
+    G === nothing || fill!(G, zero(T))
+    H === nothing || fill!(H, zero(T))
+    nll = zero(T)
+    prob = o.prob
+    for i in 1:n
+        x_i = view(o.X, i, :)
+        wi = T(o.w[i])
+        y_i = o.y[i]
+
+        #= η_j for each non-reference category, with the running log-sum-exp
+           over (η_1, …, η_k, 0) — `lse` starts at 0 for the reference. =#
+        lse = zero(T)
+        ydotη = zero(T)
+        for j in 1:k
+            off = (j - 1) * p
+            η = zero(T)
+            for a in 1:p
+                η += β[off + a] * x_i[a]
+            end
+            prob[j] = η
+            lse = logaddexp(lse, η)
+            ydotη += T(y_i[j]) * η
+        end
+        n_i = zero(T)
+        for j in 1:(k + 1)
+            n_i += T(y_i[j])
+        end
+
+        if F !== nothing
+            nll += wi * (n_i * lse - ydotη)
+        end
+        if G !== nothing || H !== nothing
+            for j in 1:k
+                prob[j] = exp(prob[j] - lse)
+            end
+            if G !== nothing
+                for j in 1:k
+                    r_j = wi * (n_i * prob[j] - T(y_i[j]))
+                    off = (j - 1) * p
+                    for a in 1:p
+                        G[off + a] += r_j * x_i[a]
+                    end
+                end
+            end
+            if H !== nothing
+                #= Block (j,l) of the Hessian is wᵢnᵢ pⱼ(δⱼₗ − pₗ) xxᵀ.
+                   Accumulate the lower triangle of the flattened matrix only;
+                   mirrored after the data pass. =#
+                for l in 1:k
+                    pl = prob[l]
+                    c_ll = wi * n_i * pl * (one(T) - pl)
+                    for b in 1:p
+                        col = (l - 1) * p + b
+                        xb = x_i[b]
+                        cx = c_ll * xb
+                        for a in b:p
+                            H[(l - 1) * p + a, col] += cx * x_i[a]
+                        end
+                        for j in (l + 1):k
+                            cjx = -wi * n_i * prob[j] * pl * xb
+                            for a in 1:p
+                                H[(j - 1) * p + a, col] += cjx * x_i[a]
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if H !== nothing
+        # Optim's Newton reads the full matrix — mirror the lower triangle.
+        d = k * p
+        for a in 1:d, b in (a + 1):d
+            H[a, b] = H[b, a]
+        end
+    end
+    G === nothing || neglogprior_grad!(o.prior, G, β)
+    H === nothing || neglogprior_hess!(o.prior, H, β)
+    F === nothing || return nll + neglogprior(o.prior, β)
+    return nothing
+end
+
+"""
+    MultinomialGLM{T<:Real, P<:AbstractPrior} <: AbstractGLM
+
+Multinomial logistic-regression emission for count vectors over `K` categories
+(softmax link, category `K` as the reference).
+
+For input x ∈ ℝᵖ the category probabilities are
+`p_j(x) = exp(ηⱼ) / Σₗ exp(ηₗ)` with `ηⱼ = B[:,j]ᵀ x` for `j < K` and `η_K = 0`.
+Observations are length-`K` integer count vectors; `logdensityof` and `fit!`
+condition on each observation's own total count, so totals may vary across
+time steps. `rand` draws a count vector with `n_trials` trials.
+
+`fit!` minimizes the weighted negative log-posterior via Optim's Newton method
+over the full `(K-1)·p` coefficient vector, with analytic gradient and
+Hessian (including the cross-category blocks) supplied through a fused `fgh!`.
+
+!!! note
+    As with logistic regression, linearly separable categories make the
+    unpenalized MLE diverge. Use a `RidgePrior(λ)` to keep the fit finite in
+    that regime.
+
+# Fields
+- `B`: coefficient matrix of size `p × (K-1)`; the reference category `K` has
+  coefficients pinned at zero
+- `n_trials`: number of trials drawn by `rand` (`n_trials ≥ 1`; not used by
+  `logdensityof`/`fit!`)
+- `prior`: regularization prior on `B` (default `NoPrior()`)
+"""
+mutable struct MultinomialGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
+    B::Matrix{T}
+    n_trials::Int
+    prior::P
+    in_dim::Int
+    out_dim::Int
+
+    function MultinomialGLM{T,P}(
+        B::Matrix{T}, n_trials::Int, prior::P, in_dim::Int, out_dim::Int
+    ) where {T<:Real,P<:AbstractPrior}
+        return new{T,P}(B, n_trials, prior, in_dim, out_dim)
+    end
+end
+
+function MultinomialGLM(
+    B::AbstractMatrix{T}, n_trials::Integer, prior::P
+) where {T<:AbstractFloat,P<:AbstractPrior}
+    p, k = size(B)
+    p > 0 || throw(ArgumentError("B must have at least one row"))
+    k > 0 || throw(ArgumentError("B must have at least one column"))
+    n_trials ≥ 1 || throw(ArgumentError("n_trials must be at least 1, got $n_trials"))
+    return MultinomialGLM{T,P}(Matrix{T}(B), Int(n_trials), prior, p, k + 1)
+end
+function MultinomialGLM(B::AbstractMatrix{T}, n_trials::Integer) where {T<:AbstractFloat}
+    return MultinomialGLM(B, n_trials, NoPrior())
+end
+
+function MultinomialGLM(B::AbstractMatrix, n_trials::Integer, prior::AbstractPrior)
+    T = float(eltype(B))
+    return MultinomialGLM(convert(Matrix{T}, B), n_trials, prior)
+end
+function MultinomialGLM(B::AbstractMatrix, n_trials::Integer)
+    return MultinomialGLM(B, n_trials, NoPrior())
+end
+
+#= Counts are accepted as any Real (integer-valued floats are common in HMM
+   obs sequences); vectors with negative or non-integer entries have zero
+   mass. The pmf conditions on the observation's own total count n = Σⱼ yⱼ:
+   log P(y|x) = log n! − Σⱼ log yⱼ! + Σⱼ yⱼ ηⱼ − n·logΣₗ exp(ηₗ). =#
+function DensityInterface.logdensityof(
+    glm::MultinomialGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
+)
+    length(y) == glm.out_dim ||
+        throw(DimensionMismatch("y length $(length(y)) ≠ out_dim $(glm.out_dim)"))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
+
+    Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
+    n_tot = 0
+    for yj in y
+        (yj >= 0 && isinteger(yj)) || return Tη(-Inf)
+        n_tot += Int(yj)
+    end
+
+    lse = zero(Tη)   # reference category contributes exp(0)
+    ydotη = zero(Tη)
+    lgm = zero(Tη)
+    for j in 1:(glm.out_dim - 1)
+        η = zero(Tη)
+        for r in 1:(glm.in_dim)
+            η += glm.B[r, j] * control_seq[r]
+        end
+        lse = logaddexp(lse, η)
+        yj = Int(y[j])
+        if yj > 0
+            ydotη += Tη(yj) * η
+            lgm += Tη(loggamma(yj + 1))
+        end
+    end
+    yK = Int(y[glm.out_dim])
+    yK > 0 && (lgm += Tη(loggamma(yK + 1)))
+
+    return Tη(loggamma(n_tot + 1)) - lgm + ydotη - Tη(n_tot) * lse
+end
+
+function Random.rand(
+    rng::AbstractRNG, glm::MultinomialGLM; control_seq::AbstractVector{<:Real}
+)
+    out = Vector{Int}(undef, glm.out_dim)
+    rand!(rng, glm, out; control_seq=control_seq)
+    return out
+end
+
+"""
+    rand!(rng, glm::MultinomialGLM, out; control_seq)
+
+In-place sample of a count vector with `n_trials` trials. `out` must be a
+length-`out_dim` integer vector. Zero allocation: uses the sequential
+conditional-binomial method, drawing each category's count from
+`Binomial(n_remaining, pⱼ / p_remaining)`.
+"""
+function Random.rand!(
+    rng::AbstractRNG,
+    glm::MultinomialGLM,
+    out::AbstractVector;
+    control_seq::AbstractVector{<:Real},
+)
+    length(out) == glm.out_dim ||
+        throw(DimensionMismatch("out length $(length(out)) ≠ out_dim $(glm.out_dim)"))
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
+
+    T = float(promote_type(eltype(glm.B), eltype(control_seq)))
+    K = glm.out_dim
+
+    lse = zero(T)
+    for j in 1:(K - 1)
+        η = zero(T)
+        for r in 1:(glm.in_dim)
+            η += glm.B[r, j] * control_seq[r]
+        end
+        lse = logaddexp(lse, η)
+    end
+
+    n_rem = glm.n_trials
+    p_rem = one(T)
+    for j in 1:(K - 1)
+        if n_rem == 0
+            out[j] = 0
+            continue
+        end
+        η = zero(T)
+        for r in 1:(glm.in_dim)
+            η += glm.B[r, j] * control_seq[r]
+        end
+        pj = exp(η - lse)
+        # p_rem can undershoot 0 by rounding once most mass is spent.
+        pc = p_rem > 0 ? clamp(pj / p_rem, zero(T), one(T)) : one(T)
+        c = rand(rng, Binomial(n_rem, Float64(pc)))
+        out[j] = c
+        n_rem -= c
+        p_rem -= pj
+    end
+    out[K] = n_rem
+    return out
+end
+
+"""
+    fit!(glm::MultinomialGLM, obs_seq, weight_seq;
+         control_seq, max_iter=50, gtol=1e-8)
+
+Minimize the weighted negative log-posterior via Optim's Newton method over
+the flattened `p × (K-1)` coefficient matrix. Each observation `obs_seq[i]`
+must be a length-`K` vector of non-negative counts; totals may vary across
+observations. Gradient and Hessian (with cross-category blocks) are analytic,
+supplied through a fused `fgh!`.
+"""
+function StatsAPI.fit!(
+    glm::MultinomialGLM{T},
+    obs_seq::AbstractVector{<:AbstractVector},
+    weight_seq::AbstractVector{<:Real};
+    control_seq::AbstractMatrix{<:Real},
+    max_iter::Int=50,
+    gtol::Real=1e-8,
+) where {T<:Real}
+    n, p = size(control_seq)
+    length(obs_seq) == n ||
+        throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
+    p == glm.in_dim ||
+        throw(DimensionMismatch("control_seq columns $p ≠ in_dim $(glm.in_dim)"))
+
+    K = glm.out_dim
+    for i in 1:n
+        length(obs_seq[i]) == K || throw(
+            DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $K")
+        )
+    end
+
+    k = K - 1
+    # β is the column-major flattening of B, so copyto! round-trips exactly.
+    β = Vector{T}(undef, p * k)
+    copyto!(β, glm.B)
+    fgh = _MultinomialFGH(
+        obs_seq, weight_seq, control_seq, glm.prior, k, Vector{T}(undef, k)
+    )
+    _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
+    copyto!(glm.B, β)
+    return glm
+end
+
 #= HiddenMarkovModels.ControlledEmission interface.
 
    `AbstractGLM <: ControlledEmission`, so a `Vector` of GLMs is a valid `dists`
@@ -1148,7 +1471,7 @@ end
 
 # Length of one covariate vector for this GLM (the GLM's input dimension `p`).
 _indim(glm::Union{GaussianGLM,BernoulliGLM,PoissonGLM}) = length(glm.β)
-_indim(glm::Union{MvGaussianGLM,MvBernoulliGLM,MvPoissonGLM}) = glm.in_dim
+_indim(glm::Union{MvGaussianGLM,MvBernoulliGLM,MvPoissonGLM,MultinomialGLM}) = glm.in_dim
 
 function DensityInterface.logdensityof(
     glm::AbstractGLM, obs, control::AbstractVector{<:Real}

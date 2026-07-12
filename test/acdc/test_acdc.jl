@@ -181,6 +181,20 @@ end
         @test abs(Statistics.cov(E[1, :], E[2, :])) < 0.01
     end
 
+    #= MultinomialGLM: conditional-binomial Rosenblatt drivers. The count
+       coordinates are dependent through the shared total, so beyond uniform
+       marginals the drivers must come out independent. K = 3 gives K−1 = 2
+       driver dimensions. =#
+    mn = MultinomialGLM([0.5 -0.3; 1.0 0.2; -0.6 0.7], 5)
+    En = Matrix{Float64}(undef, 2, N)
+    for i in 1:N
+        x = mkx()
+        En[:, i] = EM._emission_to_driver(rng, mn, rand(rng, mn; control_seq=x), x)
+    end
+    @test all(0 .<= En .<= 1)
+    @test compute_discrepancy(KSDiscrepancy(), En) < 0.05
+    @test abs(Statistics.cov(En[1, :], En[2, :])) < 0.01
+
     # The covariate-free form on a GLM errors; a covariate is required.
     @test_throws ArgumentError EM._emission_to_driver(rng, GaussianGLM([0.5], 1.0), 1.0)
 end

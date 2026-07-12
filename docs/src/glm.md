@@ -42,6 +42,22 @@ Log-linear regression for count observations ``Y ∈ \{0, 1, \ldots\}``.
 glm = PoissonGLM(zeros(3))
 ```
 
+### `MultinomialGLM(B, n_trials)`
+
+Multinomial logistic regression for count vectors over ``K`` categories e.g., per-time-bin choice counts including a "no choice" category. Category ``K`` is the reference; coefficients are a ``p × (K-1)`` matrix ``B``.
+
+``p_j(x) = \frac{\exp(η_j)}{\sum_{l=1}^{K} \exp(η_l)}, \quad η_j = B[:,j]ᵀx \ (j < K), \quad η_K = 0``  (softmax link)
+
+``Y \mid x \sim \text{Multinomial}(n, \ p(x))``
+
+`logdensityof` and `fit!` condition on each observation's own total count, so totals may vary across time steps; `rand` draws `n_trials` trials.
+
+```julia
+glm = MultinomialGLM(zeros(3, 2), 5)   # p = 3 inputs, K = 3 categories, 5 trials
+# or with a prior:
+glm = MultinomialGLM(zeros(3, 2), 5, RidgePrior(0.5))
+```
+
 ## Multivariate GLM types
 
 Each univariate GLM has a multivariate counterpart that emits a length-``k`` observation vector for a single input ``x``. Coefficients are stored as a ``p × k`` matrix ``B``; column ``j`` is the coefficient vector for output dimension ``j``.
@@ -86,15 +102,18 @@ EmissionModels.AbstractGLM
 GaussianGLM
 BernoulliGLM
 PoissonGLM
+MultinomialGLM
 MvGaussianGLM
 MvBernoulliGLM
 MvPoissonGLM
 DensityInterface.logdensityof(::MvGaussianGLM, ::AbstractVector)
 StatsAPI.fit!(::BernoulliGLM, ::AbstractVector, ::AbstractVector{<:Real})
 StatsAPI.fit!(::PoissonGLM, ::AbstractVector, ::AbstractVector{<:Real})
+StatsAPI.fit!(::MultinomialGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
 StatsAPI.fit!(::MvGaussianGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
 StatsAPI.fit!(::MvBernoulliGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
 StatsAPI.fit!(::MvPoissonGLM{T}, ::AbstractVector{<:AbstractVector}, ::AbstractVector{<:Real}) where {T<:Real}
+Random.rand!(::Random.AbstractRNG, ::MultinomialGLM, ::AbstractVector)
 Random.rand!(::Random.AbstractRNG, ::MvGaussianGLM{T}, ::AbstractVector) where {T<:Real}
 Random.rand!(::Random.AbstractRNG, ::MvBernoulliGLM, ::AbstractVector)
 Random.rand!(::Random.AbstractRNG, ::MvPoissonGLM, ::AbstractVector)

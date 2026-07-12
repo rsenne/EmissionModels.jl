@@ -19,6 +19,7 @@ using Test
             GaussianGLM,
             BernoulliGLM,
             PoissonGLM,
+            MultinomialGLM,
             MvGaussianGLM,
             MvBernoulliGLM,
             MvPoissonGLM,
