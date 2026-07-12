@@ -9,9 +9,8 @@ using JuliaFormatter
         @test JuliaFormatter.format(EmissionModels; verbose=false, overwrite=false)
     end
     @testset "Code linting" begin
+        # lags behind prerelease Julia.
         if isempty(VERSION.prerelease)
-            using Pkg
-            Pkg.add("JET")
             using JET
             JET.test_package(EmissionModels; target_modules=(EmissionModels,))
         end
