@@ -101,7 +101,7 @@ Compute per-component discrepancies from ``U(0,1)`` for a fitted `model`.
 
 Recovers the stochastic drivers via [`stochastic_drivers`](@ref) and scores each
 component's driver pool with `discrepancy`. The `rng` drives both the driver
-recovery and any Monte Carlo discrepancy estimates — seed it for reproducible
+recovery and any Monte Carlo discrepancy estimates; seed it for reproducible
 results. Extra keyword arguments are forwarded to `stochastic_drivers`.
 """
 function component_discrepancies(
@@ -408,7 +408,7 @@ end
 """
     get_critical_rho_values(results::Vector{ACDCResult}) -> Vector
 
-Sorted unique ``\\rho`` values at which the ACDC loss changes slope — exactly the
+Sorted unique ``\\rho`` values at which the ACDC loss changes slope, i.e. the
 component discrepancy values across all `K`.
 """
 function get_critical_rho_values(results::Vector{ACDCResult{T}}) where {T<:Real}
@@ -419,8 +419,8 @@ function get_critical_rho_values(results::Vector{ACDCResult{T}}) where {T<:Real}
     return unique(sort(all_discs))
 end
 
-# Estimate E_P[log p(x)] via the Kozachenko-Leonenko k-NN estimator with KDTree
-# acceleration.
+#= Estimate E_P[log p(x)] via the Kozachenko-Leonenko k-NN estimator with KDTree
+   acceleration. =#
 function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) where {T<:Real}
     D, N = size(samples)
 
@@ -439,8 +439,8 @@ function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) wher
     return sum_log_p / N
 end
 
-# Unbiased U-statistic MMD² between D × N matrices X and Y with a Gaussian RBF
-# kernel k(x,y) = exp(-‖x-y‖² / (2σ²)). O(N²).
+#= Unbiased U-statistic MMD² between D × N matrices X and Y with a Gaussian RBF
+   kernel k(x,y) = exp(-‖x-y‖² / (2σ²)). O(N²). =#
 function _compute_mmd_quadratic_unbiased(
     X::AbstractMatrix{T}, Y::AbstractMatrix{T}, sigma::T
 ) where {T<:Real}

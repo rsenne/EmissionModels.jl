@@ -27,7 +27,7 @@ posterior expected time spent in each state.
   to `(length(obs_seq),)`.
 - `n_samples::Int=1`: number of posterior sampling passes over the data.
 - `rng::AbstractRNG=Random.default_rng()`: source of randomness for the posterior
-  state sampling and the randomized PITs — seed it for reproducible drivers.
+  state sampling and the randomized PITs; seed it for reproducible drivers.
 
 # Returns
 - [`StochasticDriverResult`](@ref) with per-state driver pools and usage.
@@ -51,8 +51,8 @@ function stochastic_drivers(
     # Usage: expected fraction of time in each state.
     usage = vec(sum(γ; dims=2)) ./ T_len
 
-    # Driver dimension from a probe on the first observation's sampled-state-able
-    # emission (all states share the emission dimension in an HMM).
+    #= Probe the first observation to get the driver dimension and eltype
+       (all states of an HMM share the emission dimension). =#
     probe = _emission_to_driver(
         rng, obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
     )
