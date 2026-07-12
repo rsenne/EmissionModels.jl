@@ -25,8 +25,7 @@ SequentialSamplingModels.jl through a package extension: run
 """
 abstract type AbstractDDMEmission <: ControlledEmission end
 
-#= The extension overloads these two hooks with SequentialSamplingModels'
-   first-passage density and sampler; the fallbacks fire when it isn't loaded. =#
+# These hooks are overloaded in the SequentialSamplingModels extension.
 @noinline function _require_ssm()
     throw(
         ArgumentError(
@@ -60,12 +59,10 @@ lower; `0` is valid for no-signal trials). Correctness is determined after
 the fact from the trial condition.
 
 # Fields
-- `ν::T`: drift magnitude (ν > 0); the stimulus code carries the sign, so
-  drift is always toward the boundary matching the stimulus
+- `ν::T`: drift magnitude (ν > 0); the stimulus code carries the sign
 - `α::T`: boundary separation (α > 0)
-- `z::T`: relative starting point, i.e. response bias toward the upper
-  boundary (0 < z < 1; 0.5 is unbiased). Because the boundaries are
-  stimulus-coded, `z` is a side bias, not an accuracy bias.
+- `z::T`: relative starting point (0 < z < 1; 0.5 is unbiased). Stimulus coding
+  makes this a side bias, not an accuracy bias.
 - `τ::T`: non-decision time in seconds (τ ≥ 0)
 
 # Example
@@ -154,7 +151,6 @@ function CoherenceDDM(k::Real, γ::Real, α::Real, z::Real, τ::Real)
 end
 CoherenceDDM(; k=1.0, γ=1.0, α=1.0, z=0.5, τ=0.3) = CoherenceDDM(k, γ, α, z, τ)
 
-# odd in c, so the sign carries the stimulus side and 0 stays 0
 _signedpow(c::Real, γ::Real) = sign(c) * abs(c)^γ
 
 _drift(d::StimulusCodedDDM, s::Real) = d.ν * s
@@ -168,24 +164,14 @@ function Random.rand(rng::AbstractRNG, d::AbstractDDMEmission, control::Real)
     return _ddm_rand(rng, _drift(d, control), d.α, d.z, d.τ)
 end
 
-#= Base owns `rand(rng, S, dims::Integer...)`, which is ambiguous with the
-   `Real` method above for integer controls (the common ±1 stimulus codes).
-   This more specific method breaks the tie. =#
+# Disambiguates from Base's `rand(rng, S, dims::Integer...)` for integer codes.
 function Random.rand(rng::AbstractRNG, d::AbstractDDMEmission, control::Integer)
     return _ddm_rand(rng, _drift(d, control), d.α, d.z, d.τ)
 end
 
-#= The M-step maximizes the weighted log-likelihood with LBFGS over
-   unconstrained transformed parameters, warm-started from the current values:
-
-     ν, k, γ, α = exp(θ)             drift gain, exponent, boundary > 0
-     z = logistic(θ_z)               starting point in (0,1)
-     τ = rt_min · logistic(θ_τ)      non-decision time in (0, min observed rt)
-
-   Gradients come from a single ForwardDiff pass through the first-passage
-   density. `_pack`/`_unpack` map between a model's fields and θ, and
-   `_drift_at` evaluates the per-trial drift from the unpacked parameters. =#
-
+#= `_pack`/`_unpack` map a model's fields to and from the unconstrained vector θ
+   the optimizer sees: ν, k, γ, α through exp; z through logistic; τ through a
+   logistic scaled into (0, rt_min). =#
 function _pack(d::StimulusCodedDDM{T}, rt_min::T) where {T<:Real}
     ϵ = sqrt(eps(T))
     return T[log(d.ν), log(d.α), logit(d.z), logit(clamp(d.τ / rt_min, ϵ, 1 - ϵ))]
@@ -239,9 +225,7 @@ function _setparams!(d::CoherenceDDM, pars)
     return d
 end
 
-#= Weighted negative log-likelihood in θ. Generic in the eltype so ForwardDiff
-   can push duals through; a zero-density trial short-circuits to +Inf, which
-   the line search treats as any other rejected step. =#
+# Weighted negative log-likelihood in θ; a zero-density trial returns +Inf.
 struct _DDMNLL{
     D<:AbstractDDMEmission,
     O<:AbstractVector,
@@ -271,8 +255,7 @@ function (o::_DDMNLL)(θ::AbstractVector{T}) where {T<:Real}
     return nll
 end
 
-#= Fused value+gradient in the `fg!(F, G, θ)` form `Optim.only_fg!` expects:
-   one dual pass yields both, mirroring the fgh! pattern in `glms/glm.jl`. =#
+# Fused value+gradient in the `fg!(F, G, θ)` form `Optim.only_fg!` expects.
 struct _DDMFG{N<:_DDMNLL,C<:ForwardDiff.GradientConfig}
     nll::N
     cfg::C
@@ -329,8 +312,7 @@ function StatsAPI.fit!(
 
     T = typeof(d.α)
 
-    #= Only trials with positive weight constrain the fit, so they alone are
-       validated and bound the non-decision time from above. =#
+    # Only positive-weight trials constrain the fit and bound τ from above.
     total_weight = zero(T)
     rt_min = T(Inf)
     for i in 1:n
@@ -356,17 +338,14 @@ function StatsAPI.fit!(
     fg = _DDMFG(nll, ForwardDiff.GradientConfig(nll, θ))
     od = OnceDifferentiable(only_fg!(fg), θ)
     result = optimize(od, θ, LBFGS(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
-    #= An infinite minimum means no parameter with finite likelihood was found
-       (e.g. a degenerate warm start); keep the current parameters instead. =#
+    # Keep the current parameters if no finite-likelihood optimum was found.
     if isfinite(Optim.minimum(result))
         _setparams!(d, _unpack(d, Optim.minimizer(result), rt_min))
     end
     return d
 end
 
-#= HiddenMarkovModels.ControlledEmission positional fit signature
-   (`fit!(dist, obs_seq, control_seq, weights)`), delegating to the keyword
-   method above so the actual M-step has a single source of truth. =#
+# ControlledEmission positional fit signature; delegates to the keyword method.
 function StatsAPI.fit!(
     d::AbstractDDMEmission,
     obs_seq::AbstractVector,
