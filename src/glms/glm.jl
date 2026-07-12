@@ -1254,6 +1254,10 @@ Observations are length-`K` integer count vectors; `logdensityof` and `fit!`
 condition on each observation's own total count, so totals may vary across
 time steps. `rand` draws a count vector with `n_trials` trials.
 
+For single-trial choice data, `logdensityof` and `fit!` also accept plain
+integer labels `y ∈ 1:K` (treated as one-hot count vectors), so a choice
+sequence can stay a `Vector{Int}` with no encoding step.
+
 `fit!` minimizes the weighted negative log-posterior via Optim's Newton method
 over the full `(K-1)·p` coefficient vector, with analytic gradient and
 Hessian (including the cross-category blocks) supplied through a fused `fgh!`.
@@ -1346,6 +1350,35 @@ function DensityInterface.logdensityof(
     yK > 0 && (lgm += Tη(loggamma(yK + 1)))
 
     return Tη(loggamma(n_tot + 1)) - lgm + ydotη - Tη(n_tot) * lse
+end
+
+#= Label form for single-trial choice data: `y ∈ 1:K` is the chosen category,
+   scored as its one-hot count vector, i.e. log p_y(x) = η_y − logΣₗ exp(ηₗ).
+   Non-integer or out-of-range labels have zero mass. =#
+function DensityInterface.logdensityof(
+    glm::MultinomialGLM, y::Real; control_seq::AbstractVector{<:Real}
+)
+    length(control_seq) == glm.in_dim || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ in_dim $(glm.in_dim)"
+        ),
+    )
+
+    Tη = float(promote_type(eltype(glm.B), eltype(control_seq)))
+    (isinteger(y) && 1 <= y <= glm.out_dim) || return Tη(-Inf)
+    k = Int(y)
+
+    lse = zero(Tη)   # reference category contributes exp(0)
+    η_k = zero(Tη)   # stays 0 when k is the reference
+    for j in 1:(glm.out_dim - 1)
+        η = zero(Tη)
+        for r in 1:(glm.in_dim)
+            η += glm.B[r, j] * control_seq[r]
+        end
+        lse = logaddexp(lse, η)
+        j == k && (η_k = η)
+    end
+    return η_k - lse
 end
 
 function Random.rand(
@@ -1457,6 +1490,51 @@ function StatsAPI.fit!(
     _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
     copyto!(glm.B, β)
     return glm
+end
+
+#= Lazy one-hot views: present a label sequence `y ∈ 1:K` as the sequence of
+   length-K count vectors e_y the multinomial machinery consumes, without
+   materializing an n × K matrix. =#
+struct _OneHot <: AbstractVector{Int}
+    k::Int
+    K::Int
+end
+Base.size(o::_OneHot) = (o.K,)
+Base.IndexStyle(::Type{_OneHot}) = IndexLinear()
+Base.getindex(o::_OneHot, j::Integer) = Int(j == o.k)
+
+struct _OneHotSeq{V<:AbstractVector{<:Real}} <: AbstractVector{_OneHot}
+    labels::V
+    K::Int
+end
+Base.size(s::_OneHotSeq) = (length(s.labels),)
+Base.IndexStyle(::Type{<:_OneHotSeq}) = IndexLinear()
+Base.getindex(s::_OneHotSeq, i::Integer) = _OneHot(Int(s.labels[i]), s.K)
+
+#= Label form of `fit!` for single-trial choice data: each observation is a
+   category label `y ∈ 1:K`, fit as its one-hot count vector through the
+   count-vector method above. =#
+function StatsAPI.fit!(
+    glm::MultinomialGLM,
+    obs_seq::AbstractVector{<:Real},
+    weight_seq::AbstractVector{<:Real};
+    control_seq::AbstractMatrix{<:Real},
+    max_iter::Int=50,
+    gtol::Real=1e-8,
+)
+    K = glm.out_dim
+    for y in obs_seq
+        (isinteger(y) && 1 <= y <= K) ||
+            throw(ArgumentError("observations must be labels in 1:$K, got $y"))
+    end
+    return fit!(
+        glm,
+        _OneHotSeq(obs_seq, K),
+        weight_seq;
+        control_seq=control_seq,
+        max_iter=max_iter,
+        gtol=gtol,
+    )
 end
 
 #= HiddenMarkovModels.ControlledEmission interface.

@@ -196,6 +196,11 @@ function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::AbstractV
     return ε
 end
 
+# Label form: a single-trial choice y ∈ 1:K is its one-hot count vector.
+function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::Real, x)
+    return _emission_to_driver(rng, g, _OneHot(Int(obs), g.out_dim), x)
+end
+
 # 3-arg form on a GLM: no covariate to condition on, so point at the 4-arg hook.
 function _emission_to_driver(::AbstractRNG, g::AbstractGLM, obs)
     throw(

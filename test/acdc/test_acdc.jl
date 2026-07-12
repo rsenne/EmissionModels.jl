@@ -195,6 +195,17 @@ end
     @test compute_discrepancy(KSDiscrepancy(), En) < 0.05
     @test abs(Statistics.cov(En[1, :], En[2, :])) < 0.01
 
+    # Label form: a single-trial label recovers the same drivers as its one-hot.
+    mn1 = MultinomialGLM([0.5 -0.3; 1.0 0.2; -0.6 0.7], 1)
+    El = Matrix{Float64}(undef, 2, N)
+    for i in 1:N
+        x = mkx()
+        label = findfirst(==(1), rand(rng, mn1; control_seq=x))
+        El[:, i] = EM._emission_to_driver(rng, mn1, label, x)
+    end
+    @test all(0 .<= El .<= 1)
+    @test compute_discrepancy(KSDiscrepancy(), El) < 0.05
+
     # The covariate-free form on a GLM errors; a covariate is required.
     @test_throws ArgumentError EM._emission_to_driver(rng, GaussianGLM([0.5], 1.0), 1.0)
 end

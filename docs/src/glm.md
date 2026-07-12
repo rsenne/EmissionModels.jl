@@ -50,7 +50,14 @@ Multinomial logistic regression for count vectors over ``K`` categories e.g., pe
 
 ``Y \mid x \sim \text{Multinomial}(n, \ p(x))``
 
-`logdensityof` and `fit!` condition on each observation's own total count, so totals may vary across time steps; `rand` draws `n_trials` trials.
+`logdensityof` and `fit!` condition on each observation's own total count, so totals may vary across time steps; `rand` draws `n_trials` trials. For single-trial choice data they also accept plain integer labels ``y ∈ 1:K`` (treated as one-hot count vectors), so a choice sequence can stay a `Vector{Int}`:
+
+```julia
+glm = MultinomialGLM(zeros(3, 2), 1)
+choices = [1, 3, 2, 1, 3]              # e.g. left / right / no-choice labels
+fit!(glm, choices, ones(5); control_seq=X)
+logdensityof(glm, 3; control_seq=x)    # log p₃(x)
+```
 
 ```julia
 glm = MultinomialGLM(zeros(3, 2), 5)   # p = 3 inputs, K = 3 categories, 5 trials

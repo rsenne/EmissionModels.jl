@@ -103,6 +103,71 @@ end
         end
     end
 
+    @testset "Integer labels are one-hot sugar" begin
+        rng = Random.MersenneTwister(3)
+        B = [0.8 -0.4; -0.5 0.9; 0.2 0.1]  # p = 3, K = 3
+        glm = MultinomialGLM(B, 1)
+
+        onehot(k) = [Int(j == k) for j in 1:3]
+        for _ in 1:10
+            x = vcat(1.0, randn(rng, 2))
+            for k in 1:3
+                @test logdensityof(glm, k; control_seq=x) ==
+                    logdensityof(glm, onehot(k); control_seq=x)
+            end
+        end
+
+        # Softmax probabilities across labels sum to 1
+        x = vcat(1.0, randn(rng, 2))
+        @test sum(exp(logdensityof(glm, k; control_seq=x)) for k in 1:3) ≈ 1.0
+
+        # Invalid labels have zero mass
+        @test logdensityof(glm, 0; control_seq=x) == -Inf
+        @test logdensityof(glm, 4; control_seq=x) == -Inf
+        @test logdensityof(glm, 1.5; control_seq=x) == -Inf
+        @test_throws DimensionMismatch logdensityof(glm, 2; control_seq=[1.0])
+
+        # fit! on labels matches fit! on the equivalent one-hot vectors
+        n = 1500
+        X = hcat(ones(n), randn(rng, n), randn(rng, n))
+        labels = [findfirst(==(1), rand(rng, glm; control_seq=view(X, i, :))) for i in 1:n]
+        w = ones(n)
+        g_labels = MultinomialGLM(zeros(3, 2), 1)
+        fit!(g_labels, labels, w; control_seq=X)
+        g_onehot = MultinomialGLM(zeros(3, 2), 1)
+        fit!(g_onehot, [onehot(l) for l in labels], w; control_seq=X)
+        @test g_labels.B ≈ g_onehot.B rtol = 1e-8
+
+        # Out-of-range labels throw and leave the model intact
+        g_bad = MultinomialGLM(zeros(3, 2), 1)
+        @test_throws ArgumentError fit!(g_bad, [1, 4, 2], ones(3); control_seq=X[1:3, :])
+        @test g_bad.B == zeros(3, 2)
+    end
+
+    @testset "Label-valued ControlledEmissionHMM" begin
+        rng = Random.MersenneTwister(11)
+        p, T = 2, 800
+        trans = [0.92 0.08; 0.15 0.85]
+        dists = [
+            MultinomialGLM([1.2 -0.8; -0.6 0.5], 1), MultinomialGLM([-1.2 0.9; 0.7 -0.4], 1)
+        ]
+        hmm = ControlledEmissionHMM([0.6, 0.4], trans, dists)
+
+        control_seq = [vcat(1.0, randn(rng)) for _ in 1:T]
+        # Simulated one-hot counts, stored as the label sequence a user would have.
+        obs_seq = [findfirst(==(1), o) for o in rand(rng, hmm, control_seq).obs_seq]
+        @test obs_seq isa Vector{Int}
+        @test all(o -> o in 1:3, obs_seq)
+
+        logL = last(forward(hmm, obs_seq, control_seq; seq_ends=[T]))
+        @test all(isfinite, logL)
+
+        dists0 = [MultinomialGLM(zeros(p, 2), 1), MultinomialGLM(zeros(p, 2), 1)]
+        hmm0 = ControlledEmissionHMM([0.5, 0.5], copy(trans), dists0)
+        _, lls = baum_welch(hmm0, obs_seq, control_seq; seq_ends=[T], max_iterations=20)
+        @test all(diff(lls) .>= -1e-6)
+    end
+
     @testset "Random sampling" begin
         rng = Random.MersenneTwister(42)
         B = [0.5 -1.0; 0.2 0.3]
