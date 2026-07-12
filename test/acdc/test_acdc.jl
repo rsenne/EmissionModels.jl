@@ -9,7 +9,7 @@ using Test
 @testset "Discrepancy measures on (non)uniform samples" begin
     rng = Random.MersenneTwister(0)
 
-    # Uniform drivers ⇒ every discrepancy is small.
+    # Uniform drivers should score small on every discrepancy.
     U = rand(rng, 1, 4000)
     @test compute_discrepancy(KSDiscrepancy(), U) < 0.05
     @test compute_discrepancy(SquaredErrorDiscrepancy(), U) < 1e-2
@@ -17,14 +17,14 @@ using Test
     @test abs(compute_discrepancy(KLDiscrepancy(), U)) < 0.1
     @test abs(compute_discrepancy(MMDDiscrepancy(; block_size=4000), U)) < 1e-2
 
-    # Strongly non-uniform drivers (concentrated near 0.5) ⇒ larger scores.
+    # Strongly non-uniform drivers (concentrated near 0.5) should score larger.
     B = clamp.(0.5 .+ 0.05 .* randn(rng, 1, 4000), 1e-6, 1 - 1e-6)
     @test compute_discrepancy(KSDiscrepancy(), B) > compute_discrepancy(KSDiscrepancy(), U)
     @test compute_discrepancy(KLDiscrepancy(), B) > compute_discrepancy(KLDiscrepancy(), U)
     @test compute_discrepancy(SquaredErrorDiscrepancy(), B) >
         compute_discrepancy(SquaredErrorDiscrepancy(), U)
 
-    # Multivariate uniform ⇒ small KS / MMD.
+    # Multivariate uniform keeps KS and MMD small.
     U2 = rand(rng, 2, 3000)
     @test compute_discrepancy(KSDiscrepancy(), U2) < 0.05
     @test compute_discrepancy(MMDDiscrepancy(; block_size=3000), U2) < 1e-2
@@ -38,7 +38,7 @@ end
     @test acdc_loss(r2, 0.1) == 0.0
     @test acdc_loss(r3, 0.1) ≈ 0.30
     @test acdc_select([r2, r3], 0.1) == 2          # prefer smaller K at min loss
-    @test acdc_select([r2, r3], 0.5) == 2          # both zero ⇒ smaller K
+    @test acdc_select([r2, r3], 0.5) == 2          # both zero, ties go to smaller K
 
     crit = get_critical_rho_values([r2, r3])
     @test crit == sort(unique([0.01, 0.02, 0.01, 0.02, 0.40]))
@@ -54,12 +54,12 @@ end
 
     sd = stochastic_drivers(hmm, obs_seq)
     @test length(sd.ε_pools) == 3
-    @test all(p -> size(p, 1) == 1, sd.ε_pools)          # univariate ⇒ D=1
+    @test all(p -> size(p, 1) == 1, sd.ε_pools)          # univariate, so D=1
     @test sum(size.(sd.ε_pools, 2)) == 3000              # every step assigned once
     @test isapprox(sum(sd.usage), 1.0; atol=1e-8)
     @test all(p -> all(0 .<= p .<= 1), sd.ε_pools)       # drivers in [0,1]
 
-    # Well-specified model ⇒ drivers ≈ uniform ⇒ small per-state discrepancy.
+    # A well-specified model gives near-uniform drivers and small discrepancies.
     res = component_discrepancies(hmm, obs_seq, KSDiscrepancy())
     @test res.K == 3
     @test all(<(0.1), res.component_discrepancies)
@@ -73,7 +73,7 @@ end
     _, obs_seq = rand(rng, true_hmm, 3000)
 
     good = component_discrepancies(true_hmm, obs_seq, KLDiscrepancy())
-    # Misspecified emission variances ⇒ drivers deviate from uniform.
+    # Misspecified emission variances push the drivers away from uniform.
     bad_hmm = HMM(init, trans, [Normal(-4.0, 3.0), Normal(4.0, 3.0)])
     bad = component_discrepancies(bad_hmm, obs_seq, KLDiscrepancy())
 
@@ -98,7 +98,7 @@ end
     )
     _, mobs = rand(rng, mv, 2500)
     sd = stochastic_drivers(mv, mobs)
-    @test all(p -> size(p, 1) == 2, sd.ε_pools)          # bivariate ⇒ D=2
+    @test all(p -> size(p, 1) == 2, sd.ε_pools)          # bivariate, so D=2
     mres = component_discrepancies(mv, mobs, KSDiscrepancy())
     @test all(<(0.1), mres.component_discrepancies)
 end
@@ -181,14 +181,14 @@ end
         @test abs(Statistics.cov(E[1, :], E[2, :])) < 0.01
     end
 
-    # Covariate-free form on a GLM ⇒ clear error (covariate required).
+    # The covariate-free form on a GLM errors; a covariate is required.
     @test_throws ArgumentError EM._emission_to_driver(rng, GaussianGLM([0.5], 1.0), 1.0)
 end
 
 @testset "Discrepancy edge cases" begin
     rng = Random.MersenneTwister(123)
 
-    # KL with too few samples (N < k+1) ⇒ Inf.
+    # KL with too few samples (N < k+1) returns Inf.
     @test compute_discrepancy(KLDiscrepancy(; k_neighbors=5), rand(rng, 2, 3)) == Inf
 
     # Multivariate paths: SquaredError cross-covariance loop, sliced Wasserstein.
@@ -203,11 +203,11 @@ end
     @test compute_discrepancy(KSDiscrepancy{Float32}(), rand(rng, Float32, 1, 200)) isa
         Float32
 
-    # Unsupported emission ⇒ clear error.
+    # Unsupported emission gives a clear error.
     @test_throws ArgumentError EmissionModels._emission_to_driver(rng, missing, 1.0)
 
-    # Unsupported model ⇒ stochastic_drivers fallback errors (also via the
-    # component_discrepancies path, which forwards to stochastic_drivers).
+    #= Unsupported model hits the stochastic_drivers fallback (also via the
+       component_discrepancies path, which forwards to stochastic_drivers). =#
     @test_throws ArgumentError stochastic_drivers(missing, [1.0, 2.0])
     @test_throws ArgumentError component_discrepancies(missing, [1.0, 2.0], KSDiscrepancy())
 end
@@ -230,7 +230,7 @@ end
     hmm = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Poisson(2.0), Poisson(15.0)])
     _, obs_seq = rand(rng, hmm, 500)
 
-    # Same seed ⇒ identical drivers and identical discrepancies.
+    # The same seed reproduces identical drivers and discrepancies.
     sd1 = stochastic_drivers(hmm, obs_seq; rng=Random.MersenneTwister(7))
     sd2 = stochastic_drivers(hmm, obs_seq; rng=Random.MersenneTwister(7))
     @test sd1.ε_pools == sd2.ε_pools

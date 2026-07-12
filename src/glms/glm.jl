@@ -28,9 +28,9 @@ abstract type AbstractGLM <: ControlledEmission end
 Supertype for priors on GLM coefficients β.
 
 Subtypes must implement:
-- `neglogprior(prior, β)` → scalar negative log-prior (up to constant)
-- `neglogprior_grad!(prior, g, β)` → accumulate ∂(-log p(β))/∂β into `g`
-- `neglogprior_hess!(prior, H, β)` → accumulate ∂²(-log p(β))/∂β² into `H`
+- `neglogprior(prior, β)`: scalar negative log-prior (up to a constant)
+- `neglogprior_grad!(prior, g, β)`: accumulate ∂(-log p(β))/∂β into `g`
+- `neglogprior_hess!(prior, H, β)`: accumulate ∂²(-log p(β))/∂β² into `H`
 
 The gradient and Hessian methods accumulate (+=) rather than overwrite so
 multiple priors can compose additively.

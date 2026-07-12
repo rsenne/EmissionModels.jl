@@ -3,7 +3,7 @@
 ## What is EmissionModels?
 
 EmissionModels.jl provides ready-to-use emission models for
-[HiddenMarkovModels.jl](https://github.com/gdalle/HiddenMarkovModels.jl). An
+[HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl). An
 *emission model* (or *emission distribution*) describes how observations are
 generated conditioned on the latent state of a hidden Markov model.
 

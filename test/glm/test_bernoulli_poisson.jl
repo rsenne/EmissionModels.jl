@@ -172,7 +172,7 @@ end
         glm = BernoulliGLM(zeros(2))
         fit!(glm, y, w; control_seq=X)
 
-        # All y=0 ⟹ intercept should be strongly negative
+        # With all y=0 the intercept should be strongly negative.
         @test glm.β[1] < -2.0
         @test all(isfinite, glm.β)
     end
@@ -268,7 +268,7 @@ end
         glm = PoissonGLM([0.0, 0.0])
         fit!(glm, y, w; control_seq=X)
 
-        # All y=0 ⟹ intercept (log mean) should be strongly negative
+        # With all y=0 the intercept (log mean) should be strongly negative.
         @test glm.β[1] < -1.0
         @test all(isfinite, glm.β)
     end

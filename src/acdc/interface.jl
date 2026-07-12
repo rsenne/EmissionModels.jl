@@ -299,7 +299,7 @@ function compute_discrepancy(
     D, N = size(samples)
     total_err = zero(T)
 
-    # Marginal moments: mean → 0.5, variance → 1/12.
+    # Marginal moments: mean should be 0.5 and variance 1/12.
     for dim in 1:D
         x = view(samples, dim, :)
         total_err += (mean(x) - T(0.5))^2

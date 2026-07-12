@@ -4,9 +4,9 @@ using LinearAlgebra
 using DensityInterface
 using StatsAPI
 
-@testset "Constructor promotion — integer and mixed eltypes" begin
+@testset "Constructor promotion for integer and mixed eltypes" begin
     @testset "GaussianGLM" begin
-        # Integer β/σ2 → Float64
+        # Integer β/σ2 promote to Float64
         g = GaussianGLM([1, 2], 3)
         @test g isa GaussianGLM{Float64,NoPrior}
         @test eltype(g.β) === Float64
@@ -53,7 +53,7 @@ using StatsAPI
     end
 
     @testset "MvGaussianGLM" begin
-        # All-integer B and Σ → Float64
+        # All-integer B and Σ promote to Float64
         g = MvGaussianGLM([1 0; 0 1], [1 0; 0 1])
         @test g isa MvGaussianGLM{Float64,NoPrior}
         @test eltype(g.B) === Float64
@@ -68,7 +68,7 @@ using StatsAPI
         @test g32 isa MvGaussianGLM{Float32,NoPrior}
         @test eltype(g32.B) === Float32
 
-        # Mixed Float32 / Float64 → Float64
+        # Mixed Float32 / Float64 promotes to Float64
         g_mix32 = MvGaussianGLM(Float32[1.0 0.0; 0.0 1.0], [1.0 0.0; 0.0 1.0])
         @test g_mix32 isa MvGaussianGLM{Float64,NoPrior}
 
@@ -149,7 +149,7 @@ end
 end
 
 @testset "fit! errors on rank-deficient design" begin
-    # X column 2 is constant 0 — XᵀWX is rank-deficient.
+    # X column 2 is constant 0, so XᵀWX is rank-deficient.
     X_sing = ones(5, 2)
     X_sing[:, 2] .= 0.0
     w = ones(5)
@@ -159,15 +159,15 @@ end
         y = zeros(5)
         @test_throws ArgumentError fit!(glm, y, w; control_seq=X_sing)
 
-        # Same data fits fine with a RidgePrior — verifies the error message's suggestion.
+        # The same data fits fine with a RidgePrior, as the error message suggests.
         glm_ridge = GaussianGLM([0.0, 0.0], 1.0, RidgePrior(1.0))
         @test fit!(glm_ridge, y, w; control_seq=X_sing) === glm_ridge
         @test all(isfinite, glm_ridge.β)
     end
 
     @testset "MvGaussianGLM" begin
-        # Varied obs so the Σ M-step is well-conditioned — isolate the failure
-        # to the (rank-deficient) XᵀWX step.
+        #= Varied obs so the Σ M-step is well-conditioned, isolating the failure
+           to the (rank-deficient) XᵀWX step. =#
         obs = [[1.0, 2.0], [3.0, -1.0], [-1.0, 0.5], [2.0, 3.0], [0.5, -2.0]]
         glm = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         @test_throws ArgumentError fit!(glm, obs, w; control_seq=X_sing)

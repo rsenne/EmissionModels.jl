@@ -13,10 +13,10 @@ ACDC recovers these drivers per state, measures their discrepancy from
 ``U([0,1]^D)``, and selects the smallest number of states whose per-state
 discrepancies all fall below a cutoff ``\rho``.
 
-This works with **any `AbstractHMM` from
-[HiddenMarkovModels.jl](https://github.com/gdalle/HiddenMarkovModels.jl)** whose
+This works with any `AbstractHMM` from
+[HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl) whose
 emissions are standard `Distributions` (continuous via the CDF, discrete via a
-randomized PIT, `MvNormal` via the Cholesky–Rosenblatt transform). The HMM
+randomized PIT, `MvNormal` via the Cholesky-Rosenblatt transform). The HMM
 method loads automatically once `HiddenMarkovModels` is imported.
 
 ## Example
@@ -28,7 +28,7 @@ hmm = HMM([0.5, 0.5], [0.95 0.05; 0.05 0.95],
           [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
 _, obs_seq = rand(hmm, 3000)
 
-# Per-state discrepancy from uniform; small ⇒ well-specified.
+# Per-state discrepancy from uniform; small means well specified.
 result = component_discrepancies(hmm, obs_seq, KSDiscrepancy())
 
 # Pick the number of states with smallest ACDC loss at cutoff ρ.

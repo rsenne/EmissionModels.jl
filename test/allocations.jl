@@ -71,7 +71,7 @@ s)
     rng = Random.MersenneTwister(0)
     REPS = 1000
 
-    @testset "logdensityof — bounded per call" begin
+    @testset "logdensityof bounded per call" begin
         x = [1.0, 2.0]
 
         g = GaussianGLM([0.5, -1.0], 1.0)
@@ -98,12 +98,12 @@ s)
         @test (@allocated bench_logd(mb, yi, x, REPS)) <= ALLOC_SLOP
         @test (@allocated bench_logd(mp, yi, x, REPS)) <= ALLOC_SLOP
 
-        # MvGaussianGLM: one length-k residual per call (thread-safe).
-        # Bound to ~256 B/call → 256 * REPS for the loop.
+        #= MvGaussianGLM: one length-k residual per call (thread-safe).
+           Bound to ~256 B/call, so 256 * REPS for the loop. =#
         @test (@allocated bench_logd(mg, yv, x, REPS)) ≤ 256 * REPS
     end
 
-    @testset "rand!/rand — zero alloc beyond return" begin
+    @testset "rand!/rand zero alloc beyond return" begin
         x = [1.0, 2.0]
 
         g = GaussianGLM([0.5, -1.0], 1.0)
@@ -113,7 +113,7 @@ s)
         mb = MvBernoulliGLM([0.5 -1.0; 1.0 0.5])
         mp = MvPoissonGLM([0.5 -1.0; 0.2 0.0])
 
-        # Univariate rand returns a scalar — zero alloc
+        # Univariate rand returns a scalar, so zero alloc.
         bench_rand_scalar(rng, g, x, 1)
         bench_rand_int(rng, b, x, 1)
         bench_rand_int(rng, p, x, 1)
@@ -121,7 +121,7 @@ s)
         @test (@allocated bench_rand_int(rng, b, x, REPS)) <= ALLOC_SLOP
         @test (@allocated bench_rand_int(rng, p, x, REPS)) <= ALLOC_SLOP
 
-        # Multivariate rand! into pre-allocated buffer — zero alloc
+        # Multivariate rand! into a pre-allocated buffer, so zero alloc.
         out_f = zeros(2)
         out_i = zeros(Int, 2)
         bench_rand!_v(rng, mg, out_f, x, 1)
@@ -137,23 +137,23 @@ s)
         X = hcat(ones(n), randn(rng, n))
         w = ones(n)
 
-        # GaussianGLM: closed-form WLS. Workspace: XWX (p²) + XWy (p).
+        # GaussianGLM: closed-form WLS. Workspace is XWX (p²) + XWy (p).
         yg = randn(rng, n)
         gg = GaussianGLM([0.0, 0.0], 1.0)
         fit!(gg, yg, w; control_seq=X)
         gg = GaussianGLM([0.0, 0.0], 1.0)
         @test (@allocated fit!(gg, yg, w; control_seq=X)) ≤ 1_000
 
-        # MvGaussianGLM: closed-form weighted MvN regression.
-        # Workspace: XWX (p²) + XWY (p·k) + Σ_new (k²) + r (k).
+        #= MvGaussianGLM: closed-form weighted MvN regression.
+           Workspace is XWX (p²) + XWY (p·k) + Σ_new (k²) + r (k). =#
         ymv = [randn(rng, 2) for _ in 1:n]
         gmv = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         fit!(gmv, ymv, w; control_seq=X)
         gmv = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         @test (@allocated fit!(gmv, ymv, w; control_seq=X)) ≤ 2_000
 
-        # BernoulliGLM/PoissonGLM: Optim Newton via only_fgh!. Solver state is
-        # O(p²) per fit — measured ~4-6 KB for p=2, independent of n.
+        #= BernoulliGLM/PoissonGLM: Optim Newton via only_fgh!. Solver state is
+           O(p²) per fit, measured ~4-6 KB for p=2, independent of n. =#
         yb = Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:n]
         gb = BernoulliGLM(zeros(2))
         fit!(gb, yb, w; control_seq=X)
@@ -166,9 +166,9 @@ s)
         gp = PoissonGLM(zeros(2))
         @test (@allocated fit!(gp, yp, w; control_seq=X)) ≤ 20_000
 
-        # Multivariate Newton: one Optim solve per column (k × O(p²) state).
-        # _ColumnElementView avoids the n-sized per-column copy that
-        # Vector-of-Vectors would force.
+        #= Multivariate Newton: one Optim solve per column (k × O(p²) state).
+           _ColumnElementView avoids the n-sized per-column copy that
+           Vector-of-Vectors would force. =#
         ymb = [Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:2] for _ in 1:n]
         gmb = MvBernoulliGLM(zeros(2, 2))
         fit!(gmb, ymb, w; control_seq=X)
@@ -207,8 +207,8 @@ s)
         mvt = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
         xv = [0.1, 0.2]
 
-        # Cholesky stored as :L (no .L copy). Residual is allocated locally
-        # per call so concurrent calls on the same dist are race-free.
+        #= Cholesky stored as :L (no .L copy). Residual is allocated locally
+           per call so concurrent calls on the same dist are race-free. =#
         bench_logd_unctrl(mvt, xv, 1)
         @test (@allocated bench_logd_unctrl(mvt, xv, REPS)) ≤ 256 * REPS
 
@@ -222,7 +222,7 @@ s)
         mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
         fit!(mvt2, obs, w; max_iter=5)
         mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
-        # ν step still goes through Optim — loose bound.
+        # The ν step still goes through Optim, hence the loose bound.
         @test (@allocated fit!(mvt2, obs, w; max_iter=5)) ≤ 1_000_000
     end
 

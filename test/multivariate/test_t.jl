@@ -43,14 +43,11 @@ include("../hmm_utils.jl")
         ν = 5.0
         dist = MultivariateT(μ, Σ, ν)
 
-        # Verify HasDensity trait
         @test DensityKind(dist) == HasDensity()
 
-        # Test log density at mean
         logp_mean = logdensityof(dist, μ)
         @test isfinite(logp_mean)
 
-        # Test log density at various points
         x1 = [1.0, 2.0]  # at mean
         x2 = [2.0, 3.0]  # shifted
         x3 = [0.0, 1.0]  # shifted other direction
@@ -67,13 +64,12 @@ include("../hmm_utils.jl")
         @test logp1 > logp2
         @test logp1 > logp3
 
-        # Test symmetry (for symmetric covariance)
+        # The density is symmetric when the scale is.
         μ_sym = [0.0, 0.0]
         Σ_sym = [1.0 0.0; 0.0 1.0]
         dist_sym = MultivariateT(μ_sym, Σ_sym, ν)
         @test logdensityof(dist_sym, [1.0, 0.0]) ≈ logdensityof(dist_sym, [-1.0, 0.0])
 
-        # Test dimension mismatch
         @test_throws DimensionMismatch logdensityof(dist, [1.0])
         @test_throws DimensionMismatch logdensityof(dist, [1.0, 2.0, 3.0])
     end
@@ -85,26 +81,22 @@ include("../hmm_utils.jl")
         ν = 10.0
         dist = MultivariateT(μ, Σ, ν)
 
-        # Generate samples
         n_samples = 5000
         samples = [rand(rng, dist) for _ in 1:n_samples]
-
-        # All samples should have correct dimension
         @test all(length(s) == 2 for s in samples)
 
-        # Convert to matrix for statistics
         sample_matrix = hcat(samples...)'
 
-        # Check empirical mean (should be close to μ for ν > 1)
+        # The empirical mean should be close to μ (defined for ν > 1).
         empirical_mean = vec(mean(sample_matrix; dims=1))
         @test empirical_mean ≈ μ atol = 0.2
 
-        # Check empirical covariance (should be close to Σ * ν/(ν-2) for ν > 2)
+        # The empirical covariance should be close to Σ * ν/(ν-2) (ν > 2).
         expected_cov = Σ * (ν / (ν - 2))
         empirical_cov = cov(sample_matrix)
         @test isapprox(empirical_cov, expected_cov, atol=0.5)
 
-        # Test with low degrees of freedom (heavier tails)
+        # Low degrees of freedom (heavier tails) should still sample cleanly.
         dist_heavy = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 3.0)
         samples_heavy = [rand(rng, dist_heavy) for _ in 1:1000]
         @test all(length(s) == 2 for s in samples_heavy)
@@ -117,12 +109,10 @@ include("../hmm_utils.jl")
         true_ν = 8.0
         true_dist = MultivariateT(true_μ, true_Σ, true_ν)
 
-        # Generate synthetic data
         n = 2000
         obs = [rand(rng, true_dist) for _ in 1:n]
         weights = ones(n)
 
-        # Fit distribution
         fitted_dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         fit!(fitted_dist, obs, weights; max_iter=50)
 
@@ -135,7 +125,6 @@ include("../hmm_utils.jl")
     @testset "fit! with weighted observations" begin
         rng = Random.MersenneTwister(456)
 
-        # Create observations with varying weights
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
         weights = rand(rng, n) .+ 0.5
@@ -205,33 +194,28 @@ include("../hmm_utils.jl")
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
+        # Simulate the full workflow an HMM fit would drive.
         rng = Random.MersenneTwister(999)
 
-        # Create true distribution
         true_dist = MultivariateT([2.0, -1.0], [1.5 0.4; 0.4 1.0], 6.0)
 
-        # Generate observations
         n_obs = 800
         observations = [rand(rng, true_dist) for _ in 1:n_obs]
 
         # Simulate HMM posterior weights
         weights = rand(rng, n_obs) .+ 0.5
 
-        # Fit new distribution
         fitted = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         fit!(fitted, observations, weights; max_iter=40)
 
-        # Check that fitted parameters are reasonable
+        # Fitted parameters should be sane.
         @test fitted.ν > 0
         @test all(isfinite, fitted.μ)
         @test isposdef(fitted.Σ)
 
-        # Generate new samples from fitted distribution
         new_samples = [rand(rng, fitted) for _ in 1:100]
         @test all(length(s) == 2 for s in new_samples)
 
-        # Compute log densities
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
     end
@@ -239,40 +223,33 @@ include("../hmm_utils.jl")
     @testset "HMM Integration" begin
         rng = Random.MersenneTwister(888)
 
-        # Create HMM with MultivariateT emissions using create_hmm utility
         hmm = create_hmm(MultivariateT; n_states=3, α=12.0, dim=2, rng=rng)
 
-        # Verify HMM structure
         @test length(hmm.init) == 3
         @test size(hmm.trans) == (3, 3)
         @test length(hmm.dists) == 3
 
-        # Verify all emissions are MultivariateT with correct dimension
         @test all(dist -> dist isa MultivariateT, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
-        # Verify transition matrix is stochastic
         @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
-        # Generate observations from the HMM
         state_seq, obs_seq = rand(rng, hmm, 100)
         @test length(state_seq) == 100
         @test length(obs_seq) == 100
         @test all(obs -> length(obs) == 2, obs_seq)
 
-        # Verify we can compute forward algorithm
         log_alpha, log_ll = forward(hmm, obs_seq)
         @test size(log_alpha) == (3, 100)
         @test all(isfinite, log_alpha)
         @test all(isfinite, log_ll)
 
-        # Verify we can run Baum-Welch to fit the HMM
         hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
         @test length(lls) <= 5
         @test all(isfinite, lls)
 
-        # Test with custom parameters
+        # Again with custom parameters.
         hmm_custom = create_hmm(
             MultivariateT; n_states=4, dim=3, α=8.0, ν_range=(4.0, 12.0), rng=rng
         )
@@ -314,14 +291,11 @@ end
         ν = 5.0
         dist = MultivariateTDiag(μ, σ², ν)
 
-        # Verify HasDensity trait
         @test DensityKind(dist) == HasDensity()
 
-        # Test log density at mean
         logp_mean = logdensityof(dist, μ)
         @test isfinite(logp_mean)
 
-        # Test log density at various points
         x1 = [1.0, 2.0]  # at mean
         x2 = [2.0, 3.0]  # shifted
         x3 = [0.0, 1.0]  # shifted other direction
@@ -338,7 +312,6 @@ end
         @test logp1 > logp2
         @test logp1 > logp3
 
-        # Test dimension mismatch
         @test_throws DimensionMismatch logdensityof(dist, [1.0])
         @test_throws DimensionMismatch logdensityof(dist, [1.0, 2.0, 3.0])
     end
@@ -350,14 +323,10 @@ end
         ν = 10.0
         dist = MultivariateTDiag(μ, σ², ν)
 
-        # Generate samples
         n_samples = 5000
         samples = [rand(rng, dist) for _ in 1:n_samples]
-
-        # All samples should have correct dimension
         @test all(length(s) == 2 for s in samples)
 
-        # Convert to matrix for statistics
         sample_matrix = hcat(samples...)'
 
         # Check empirical mean
@@ -377,12 +346,10 @@ end
         true_ν = 8.0
         true_dist = MultivariateTDiag(true_μ, true_σ², true_ν)
 
-        # Generate synthetic data
         n = 2000
         obs = [rand(rng, true_dist) for _ in 1:n]
         weights = ones(n)
 
-        # Fit distribution
         fitted_dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(fitted_dist, obs, weights; max_iter=50)
 
@@ -395,7 +362,6 @@ end
     @testset "fit! with weighted observations" begin
         rng = Random.MersenneTwister(456)
 
-        # Create observations with varying weights
         n = 500
         obs = [randn(rng, 2) for _ in 1:n]
         weights = rand(rng, n) .+ 0.5
@@ -465,33 +431,28 @@ end
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
+        # Simulate the full workflow an HMM fit would drive.
         rng = Random.MersenneTwister(999)
 
-        # Create true distribution
         true_dist = MultivariateTDiag([2.0, -1.0], [1.5, 1.0], 6.0)
 
-        # Generate observations
         n_obs = 800
         observations = [rand(rng, true_dist) for _ in 1:n_obs]
 
         # Simulate HMM posterior weights
         weights = rand(rng, n_obs) .+ 0.5
 
-        # Fit new distribution
         fitted = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(fitted, observations, weights; max_iter=40)
 
-        # Check that fitted parameters are reasonable
+        # Fitted parameters should be sane.
         @test fitted.ν > 0
         @test all(isfinite, fitted.μ)
         @test all(>(0), fitted.σ²)
 
-        # Generate new samples from fitted distribution
         new_samples = [rand(rng, fitted) for _ in 1:100]
         @test all(length(s) == 2 for s in new_samples)
 
-        # Compute log densities
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
     end
@@ -499,40 +460,33 @@ end
     @testset "HMM Integration" begin
         rng = Random.MersenneTwister(999)
 
-        # Create HMM with MultivariateTDiag emissions using create_hmm utility
         hmm = create_hmm(MultivariateTDiag; n_states=3, α=10.0, dim=2, rng=rng)
 
-        # Verify HMM structure
         @test length(hmm.init) == 3
         @test size(hmm.trans) == (3, 3)
         @test length(hmm.dists) == 3
 
-        # Verify all emissions are MultivariateTDiag with correct dimension
         @test all(dist -> dist isa MultivariateTDiag, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
-        # Verify transition matrix is stochastic
         @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
-        # Generate observations from the HMM
         state_seq, obs_seq = rand(rng, hmm, 100)
         @test length(state_seq) == 100
         @test length(obs_seq) == 100
         @test all(obs -> length(obs) == 2, obs_seq)
 
-        # Verify we can compute forward algorithm
         log_alpha, log_ll = forward(hmm, obs_seq)
         @test size(log_alpha) == (3, 100)
         @test all(isfinite, log_alpha)
         @test all(isfinite, log_ll)
 
-        # Verify we can run Baum-Welch to fit the HMM
         hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
         @test length(lls) <= 5
         @test all(isfinite, lls)
 
-        # Test with custom parameters
+        # Again with custom parameters.
         hmm_custom = create_hmm(
             MultivariateTDiag;
             n_states=4,
