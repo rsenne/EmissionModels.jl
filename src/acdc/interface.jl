@@ -95,25 +95,31 @@ function stochastic_drivers(model, data; kwargs...)
 end
 
 """
-    component_discrepancies(model, data, discrepancy; n_samples=1, kwargs...) -> ACDCResult
+    component_discrepancies(model, data, discrepancy; n_samples=1, rng, kwargs...) -> ACDCResult
 
 Compute per-component discrepancies from ``U(0,1)`` for a fitted `model`.
 
 Recovers the stochastic drivers via [`stochastic_drivers`](@ref) and scores each
-component's driver pool with `discrepancy`. Extra keyword arguments are forwarded
-to `stochastic_drivers`.
+component's driver pool with `discrepancy`. The `rng` drives both the driver
+recovery and any Monte Carlo discrepancy estimates — seed it for reproducible
+results. Extra keyword arguments are forwarded to `stochastic_drivers`.
 """
 function component_discrepancies(
-    model, data, discrepancy::ComponentDiscrepancy; n_samples::Int=1, kwargs...
+    model,
+    data,
+    discrepancy::ComponentDiscrepancy;
+    n_samples::Int=1,
+    rng::AbstractRNG=Random.default_rng(),
+    kwargs...,
 )
-    result = stochastic_drivers(model, data; n_samples=n_samples, kwargs...)
+    result = stochastic_drivers(model, data; n_samples=n_samples, rng=rng, kwargs...)
     usage = result.usage
     K = length(usage)
     T = eltype(usage)
 
     discs = Vector{T}(undef, K)
     for k in 1:K
-        discs[k] = T(compute_discrepancy(discrepancy, result.ε_pools[k]))
+        discs[k] = T(compute_discrepancy(discrepancy, result.ε_pools[k]; rng=rng))
     end
 
     return ACDCResult(K, discs, usage)
@@ -220,15 +226,23 @@ end
 MMDDiscrepancy(; kwargs...) = MMDDiscrepancy{Float64}(; kwargs...)
 
 """
-    compute_discrepancy(d::ComponentDiscrepancy, samples::AbstractMatrix) -> Real
+    compute_discrepancy(d::ComponentDiscrepancy, samples::AbstractMatrix; rng) -> Real
 
 Divergence between the empirical distribution of `samples` (a `D × N` matrix of
-drivers in ``[0,1]``) and ``U([0,1]^D)``. Non-negative.
+drivers in ``[0,1]``) and ``U([0,1]^D)``. Non-negative. Samples of any `Real`
+eltype are accepted and computed at the discrepancy's precision `T`.
+
+The `rng` keyword (default `Random.default_rng()`) feeds the Monte Carlo
+estimates in [`WassersteinDiscrepancy`](@ref) (sliced projections for `D > 1`)
+and [`MMDDiscrepancy`](@ref) (uniform reference sample); the other measures are
+deterministic and ignore it.
 """
 function compute_discrepancy end
 
 function compute_discrepancy(
-    d::KLDiscrepancy{T}, samples::AbstractMatrix{T}
+    d::KLDiscrepancy{T},
+    samples::AbstractMatrix{<:Real};
+    rng::AbstractRNG=Random.default_rng(),
 ) where {T<:Real}
     D, N = size(samples)
     k = d.k_neighbors
@@ -240,7 +254,7 @@ function compute_discrepancy(
 
     # Probit transform to N(0,1) space; clamp to avoid ±Inf at the boundaries.
     ϵ = eps(T)
-    samples_clamped = clamp.(samples, ϵ, one(T) - ϵ)
+    samples_clamped = clamp.(T.(samples), ϵ, one(T) - ϵ)
     samples_normal = quantile.(Normal(zero(T), one(T)), samples_clamped)
 
     # E[log p_data] via k-NN in R^D.
@@ -255,13 +269,15 @@ function compute_discrepancy(
 end
 
 function compute_discrepancy(
-    d::KSDiscrepancy{T}, samples::AbstractMatrix{T}
+    d::KSDiscrepancy{T},
+    samples::AbstractMatrix{<:Real};
+    rng::AbstractRNG=Random.default_rng(),
 ) where {T<:Real}
     D, N = size(samples)
 
     max_ks = zero(T)
     for dim in 1:D
-        x = sort(view(samples, dim, :))
+        x = sort!(T.(view(samples, dim, :)))
         ecdf_vals = collect(T, 1:N) ./ N
         ref_cdf_vals = clamp.(x, zero(T), one(T))
         ks_stat = maximum(
@@ -276,7 +292,9 @@ function compute_discrepancy(
 end
 
 function compute_discrepancy(
-    d::SquaredErrorDiscrepancy{T}, samples::AbstractMatrix{T}
+    d::SquaredErrorDiscrepancy{T},
+    samples::AbstractMatrix{<:Real};
+    rng::AbstractRNG=Random.default_rng(),
 ) where {T<:Real}
     D, N = size(samples)
     total_err = zero(T)
@@ -295,16 +313,18 @@ function compute_discrepancy(
         end
     end
 
-    return total_err / D
+    return T(total_err / D)
 end
 
 function compute_discrepancy(
-    d::WassersteinDiscrepancy{T}, samples::AbstractMatrix{T}
+    d::WassersteinDiscrepancy{T},
+    samples::AbstractMatrix{<:Real};
+    rng::AbstractRNG=Random.default_rng(),
 ) where {T<:Real}
     D, N = size(samples)
 
     if D == 1
-        x_sorted = sort(vec(samples))
+        x_sorted = sort!(T.(vec(samples)))
         quantiles = [(i - T(0.5)) / N for i in 1:N]
         w_dist = zero(T)
         for i in 1:N
@@ -313,14 +333,15 @@ function compute_discrepancy(
         return (w_dist / N)^(one(T) / d.p)
     else
         # Sliced Wasserstein: average over random 1D projections.
+        S = T.(samples)
         n_projections = 50
         total_w = zero(T)
         for _ in 1:n_projections
-            direction = randn(T, D)
+            direction = randn(rng, T, D)
             direction ./= norm(direction)
 
-            x_sorted = sort(vec(direction' * samples))
-            ref_samples = sort(vec(direction' * rand(T, D, N)))
+            x_sorted = sort!(vec(direction' * S))
+            ref_samples = sort!(vec(direction' * rand(rng, T, D, N)))
 
             w_dist = zero(T)
             for i in 1:N
@@ -333,13 +354,16 @@ function compute_discrepancy(
 end
 
 function compute_discrepancy(
-    d::MMDDiscrepancy{T}, samples::AbstractMatrix{T}
+    d::MMDDiscrepancy{T},
+    samples::AbstractMatrix{<:Real};
+    rng::AbstractRNG=Random.default_rng(),
 ) where {T<:Real}
     D, N = size(samples)
+    S = T.(samples)
 
     if N <= d.block_size
-        reference_uniform = rand(T, D, N)
-        return _compute_mmd_quadratic_unbiased(samples, reference_uniform, d.sigma)
+        reference_uniform = rand(rng, T, D, N)
+        return _compute_mmd_quadratic_unbiased(S, reference_uniform, d.sigma)
     end
 
     # Block strategy for large N: average MMD over disjoint blocks.
@@ -348,8 +372,8 @@ function compute_discrepancy(
     for b in 1:n_blocks
         start_idx = (b - 1) * d.block_size + 1
         end_idx = b * d.block_size
-        block_samples = view(samples, :, start_idx:end_idx)
-        reference = rand(T, D, d.block_size)
+        block_samples = view(S, :, start_idx:end_idx)
+        reference = rand(rng, T, D, d.block_size)
         total_mmd += _compute_mmd_quadratic_unbiased(block_samples, reference, d.sigma)
     end
     return max(zero(T), total_mmd / n_blocks)
@@ -372,13 +396,13 @@ breaking ties toward smaller `K`. `results` must be ordered by `K`.
 """
 function acdc_select(results::Vector{ACDCResult{T}}, ρ::Real) where {T<:Real}
     losses = [acdc_loss(r, ρ) for r in results]
-    min_loss = minimum(losses)
-    for (i, loss) in enumerate(losses)
-        if loss ≈ min_loss
-            return results[i].K
-        end
+    #= `results` is ordered by K, so return the earliest entry whose loss ties
+       the minimum (`≈` absorbs float noise in the hinge sums). =#
+    best = argmin(losses)
+    for i in 1:(best - 1)
+        losses[i] ≈ losses[best] && return results[i].K
     end
-    return results[argmin(losses)].K
+    return results[best].K
 end
 
 """
