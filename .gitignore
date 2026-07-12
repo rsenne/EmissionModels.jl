@@ -7,3 +7,5 @@
 /docs/build/
 
 /test/Manifest*.toml
+
+/benchmark/Manifest*.toml
