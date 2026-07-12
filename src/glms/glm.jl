@@ -152,6 +152,9 @@ function StatsAPI.fit!(
     XWy = zeros(T, p)
     wsum = zero(T)
 
+    #= XᵀWX is symmetric: accumulate only the lower triangle (stride-1 in the
+       first index), halving the inner-loop work; the Cholesky below reads
+       uplo = :L. =#
     for i in 1:n
         w = T(weights[i])
         wsum += w
@@ -160,8 +163,8 @@ function StatsAPI.fit!(
         for a in 1:p
             xa = x_i[a]
             wxa = w * xa
-            for b in 1:p
-                XWX[a, b] += wxa * x_i[b]
+            for b in a:p
+                XWX[b, a] += wxa * x_i[b]
             end
             XWy[a] += wxa * y_i
         end
@@ -170,7 +173,7 @@ function StatsAPI.fit!(
     # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
     neglogprior_hess!(reg.prior, XWX, reg.β)
 
-    F = cholesky!(Symmetric(XWX); check=false)
+    F = cholesky!(Symmetric(XWX, :L); check=false)
     issuccess(F) || throw(
         ArgumentError(
             "XᵀWX is not positive definite: `control_seq` is rank-deficient " *
@@ -246,11 +249,19 @@ function (o::_BernoulliFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
                 G === nothing || (G[a] += r_i * xa)
                 if H !== nothing
                     wxa = W_i * xa
-                    for b in 1:p
-                        H[a, b] += wxa * x_i[b]
+                    # Symmetric H: accumulate the lower triangle only,
+                    # mirrored after the data pass.
+                    for b in a:p
+                        H[b, a] += wxa * x_i[b]
                     end
                 end
             end
+        end
+    end
+    if H !== nothing
+        # Optim's Newton reads the full matrix — mirror the lower triangle.
+        for a in 1:p, b in (a + 1):p
+            H[a, b] = H[b, a]
         end
     end
     G === nothing || neglogprior_grad!(o.prior, G, β)
@@ -298,11 +309,19 @@ function (o::_PoissonFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
                 G === nothing || (G[a] += r_i * xa)
                 if H !== nothing
                     wxa = W_i * xa
-                    for b in 1:p
-                        H[a, b] += wxa * x_i[b]
+                    # Symmetric H: accumulate the lower triangle only,
+                    # mirrored after the data pass.
+                    for b in a:p
+                        H[b, a] += wxa * x_i[b]
                     end
                 end
             end
+        end
+    end
+    if H !== nothing
+        # Optim's Newton reads the full matrix — mirror the lower triangle.
+        for a in 1:p, b in (a + 1):p
+            H[a, b] = H[b, a]
         end
     end
     G === nothing || neglogprior_grad!(o.prior, G, β)
@@ -372,6 +391,11 @@ P(Y=1|x) = σ(xᵀβ) where σ is the logistic function. `fit!` minimizes the
 weighted negative log-posterior via Optim's Newton method with analytic
 gradient and Hessian, so any `AbstractPrior` composes without changes to
 the solver.
+
+!!! note
+    If the data are linearly separable, the unpenalized MLE does not exist —
+    ‖β‖ diverges and the Hessian becomes singular. Use a `RidgePrior(λ)` to
+    keep the fit finite in that regime.
 
 # Fields
 - `β`: coefficient vector (length p)
@@ -724,8 +748,8 @@ function StatsAPI.fit!(
         for a in 1:p
             xa = x_i[a]
             wxa = w * xa
-            for b in 1:p
-                XWX[a, b] += wxa * x_i[b]
+            for b in a:p
+                XWX[b, a] += wxa * x_i[b]
             end
             for j in 1:k
                 XWY[a, j] += wxa * T(obs_i[j])
