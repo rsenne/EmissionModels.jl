@@ -62,9 +62,7 @@ multivariate types carry a `p × k` coefficient matrix `B` and emit length-`k`
 vectors. All of them support regularization via priors:
 
 ```julia
-using EmissionModels: RidgePrior
-
-β  = zeros(3)
+β = zeros(3)
 glm = GaussianGLM(β, 1.0, RidgePrior(0.5))  # L2 regularization
 ```
 
