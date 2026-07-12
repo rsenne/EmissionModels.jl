@@ -13,19 +13,14 @@ using StatsAPI
     - Univariate logdensityof, MvBernoulli/MvPoisson logdensityof,
       MultivariateTDiag logdensityof, PoissonZeroInflated logdensityof: 0 B
     - MvGaussianGLM logdensityof, MultivariateT logdensityof: 1 length-k
-      vector per call. Thread-safe by design — the struct scratch was removed
-      because two threads reading the same dist would race. Bound to 256 B/call.
-    - All Mv rand!: 0 bytes (zero-alloc, thread-safe via in-place lmul!).
+      vector per call.
+    - All Mv rand!: 0 bytes
     - fit! is bounded by O(p² + k²) workspace plus (for Bernoulli/Poisson)
-      Optim's Newton solver state — a few KB, independent of n.
-
-  Top-level `@allocated foo()` reports kwarg-lowering noise (~48 B) that
-  does NOT exist in real loops — measure inside a function.
+      Optim's Newton solver state a few KB, independent of n.
 
   On Julia 1.10 each `@allocated` measurement of these benchmark loops reports
   a constant ~16 B of measurement overhead (independent of REPS; gone on
-  1.11+). `ALLOC_SLOP` absorbs it without weakening the per-call assertion —
-  a genuine per-call allocation would show up as ≥ 16 B × REPS.
+  1.11+). `ALLOC_SLOP` absorbs it. I'm too lazy to figure out why.
 =#
 const ALLOC_SLOP = VERSION < v"1.11" ? 32 : 0
 
@@ -137,7 +132,7 @@ s)
         @test (@allocated bench_rand!_i(rng, mp, out_i, x, REPS)) <= ALLOC_SLOP
     end
 
-    @testset "GLM fit! — bounded, independent of n" begin
+    @testset "GLM fit! bounded, independent of n" begin
         n = 500
         X = hcat(ones(n), randn(rng, n))
         w = ones(n)
@@ -157,8 +152,7 @@ s)
         gmv = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         @test (@allocated fit!(gmv, ymv, w; control_seq=X)) ≤ 2_000
 
-        # BernoulliGLM/PoissonGLM: Optim Newton via only_fgh! (fused analytic
-        # f/g/H, no finite differences, no O(n) temporaries). Solver state is
+        # BernoulliGLM/PoissonGLM: Optim Newton via only_fgh!. Solver state is
         # O(p²) per fit — measured ~4-6 KB for p=2, independent of n.
         yb = Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:n]
         gb = BernoulliGLM(zeros(2))
@@ -205,8 +199,6 @@ s)
         zip2 = PoissonZeroInflated(1.0, 0.1)
         fit!(zip2, y, w)
         zip2 = PoissonZeroInflated(1.0, 0.1)
-        # The all-zeros check materializes an n-length mask (~4.4 KB on 1.10,
-        # under 1 KB on 1.12); bound covers both until the mask is removed.
         @test (@allocated fit!(zip2, y, w)) ≤ 8_000
     end
 
