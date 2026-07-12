@@ -264,3 +264,67 @@ end
     @test compute_discrepancy(WassersteinDiscrepancy(), U32) isa Float64
     @test compute_discrepancy(MMDDiscrepancy(), U32) isa Float64
 end
+
+@testset "Empty driver pools score Inf" begin
+    rng = Random.MersenneTwister(17)
+
+    #= Direct scoring path: a never-sampled component has a D × 0 pool, on
+       which the raw measures throw or return NaN; component_discrepancies
+       must map it to Inf for every measure. =#
+    pools = [rand(rng, 2, 300), Matrix{Float64}(undef, 2, 0)]
+    sd = StochasticDriverResult(pools, [1.0, 0.0])
+    for disc in (
+        KSDiscrepancy(),
+        KLDiscrepancy(),
+        SquaredErrorDiscrepancy(),
+        WassersteinDiscrepancy(),
+        MMDDiscrepancy(),
+    )
+        res = component_discrepancies(sd, disc; rng=Random.MersenneTwister(2))
+        @test res.component_discrepancies[2] == Inf
+        @test isfinite(res.component_discrepancies[1])
+    end
+
+    #= End-to-end: an unreachable state (the K-too-large scenario ACDC scans
+       for) never gets sampled, scores Inf, and pushes selection to the
+       smaller K instead of poisoning it with NaN. =#
+    hmm2 = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
+    hmm3 = HMM(
+        [0.5, 0.5, 0.0],
+        [0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0],
+        [Normal(-4.0, 1.0), Normal(4.0, 1.0), Normal(0.0, 1.0)],
+    )
+    _, obs_seq = rand(Random.MersenneTwister(4), hmm2, 2000)
+
+    r2 = component_discrepancies(hmm2, obs_seq, KSDiscrepancy(); rng=rng)
+    r3 = component_discrepancies(hmm3, obs_seq, KSDiscrepancy(); rng=rng)
+    @test r3.component_discrepancies[3] == Inf
+    @test acdc_loss(r3, 0.1) == Inf
+    @test acdc_select([r2, r3], 0.1) == 2
+end
+
+@testset "MMD blocks keep the tail; sliced Wasserstein projections" begin
+    rng = Random.MersenneTwister(23)
+
+    #= N = 401 with block_size = 200 previously dropped the last sample block
+       remainder; near-equal partitioning must consume all samples and stay
+       finite and small on uniform input. =#
+    m = compute_discrepancy(
+        MMDDiscrepancy(; block_size=200), rand(rng, 2, 401); rng=Random.MersenneTwister(2)
+    )
+    @test isfinite(m)
+    @test 0 <= m < 0.05
+
+    # The clamp keeps the estimate non-negative on both code paths.
+    @test compute_discrepancy(
+        MMDDiscrepancy(; block_size=500), rand(rng, 1, 400); rng=Random.MersenneTwister(2)
+    ) >= 0
+
+    # n_projections is honored (and validated).
+    @test compute_discrepancy(
+        WassersteinDiscrepancy(; n_projections=5),
+        rand(rng, 3, 500);
+        rng=Random.MersenneTwister(2),
+    ) < 0.1
+    @test_throws ArgumentError WassersteinDiscrepancy(; n_projections=0)
+end

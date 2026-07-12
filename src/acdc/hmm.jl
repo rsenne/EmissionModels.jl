@@ -51,20 +51,30 @@ function stochastic_drivers(
     # Usage: expected fraction of time in each state.
     usage = vec(sum(γ; dims=2)) ./ T_len
 
+    #= `obs_distributions` builds a K-vector of emissions on every call; cache
+       it across timesteps whose control is identical (always true for the
+       default `fill(nothing, T)`) and rebuild only when the control changes. =#
+    ctrl_cached = control_seq[1]
+    dists_cached = obs_distributions(hmm, ctrl_cached)
+
     #= Probe the first observation to get the driver dimension and eltype
        (all states of an HMM share the emission dimension). =#
-    probe = _emission_to_driver(
-        rng, obs_distributions(hmm, control_seq[1])[1], obs_seq[1], control_seq[1]
-    )
+    probe = _emission_to_driver(rng, dists_cached[1], obs_seq[1], control_seq[1])
     D = length(probe)
     Tε = eltype(probe)
 
     ε_lists = [Vector{Vector{Tε}}() for _ in 1:K]
     for _ in 1:n_samples
         for t in 1:T_len
+            if control_seq[t] !== ctrl_cached
+                ctrl_cached = control_seq[t]
+                dists_cached = obs_distributions(hmm, ctrl_cached)
+            end
             z = _sample_categorical(rng, view(γ, :, t))
-            dist = obs_distributions(hmm, control_seq[t])[z]
-            push!(ε_lists[z], _emission_to_driver(rng, dist, obs_seq[t], control_seq[t]))
+            push!(
+                ε_lists[z],
+                _emission_to_driver(rng, dists_cached[z], obs_seq[t], control_seq[t]),
+            )
         end
     end
 

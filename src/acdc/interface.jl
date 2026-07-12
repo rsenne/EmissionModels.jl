@@ -96,13 +96,20 @@ end
 
 """
     component_discrepancies(model, data, discrepancy; n_samples=1, rng, kwargs...) -> ACDCResult
+    component_discrepancies(result::StochasticDriverResult, discrepancy; rng) -> ACDCResult
 
 Compute per-component discrepancies from ``U(0,1)`` for a fitted `model`.
 
 Recovers the stochastic drivers via [`stochastic_drivers`](@ref) and scores each
 component's driver pool with `discrepancy`. The `rng` drives both the driver
 recovery and any Monte Carlo discrepancy estimates; seed it for reproducible
-results. Extra keyword arguments are forwarded to `stochastic_drivers`.
+results. Extra keyword arguments are forwarded to `stochastic_drivers`. The
+second form scores an already-recovered [`StochasticDriverResult`](@ref).
+
+A component whose driver pool is empty (it was never assigned a sample, which
+happens when the model has more components than the data supports) scores
+`Inf`: there is no evidence it is well specified, and the discrepancy measures
+are undefined on empty pools.
 """
 function component_discrepancies(
     model,
@@ -113,13 +120,28 @@ function component_discrepancies(
     kwargs...,
 )
     result = stochastic_drivers(model, data; n_samples=n_samples, rng=rng, kwargs...)
+    return component_discrepancies(result, discrepancy; rng=rng)
+end
+
+function component_discrepancies(
+    result::StochasticDriverResult,
+    discrepancy::ComponentDiscrepancy;
+    rng::AbstractRNG=Random.default_rng(),
+)
     usage = result.usage
     K = length(usage)
     T = eltype(usage)
 
     discs = Vector{T}(undef, K)
     for k in 1:K
-        discs[k] = T(compute_discrepancy(discrepancy, result.ε_pools[k]; rng=rng))
+        pool = result.ε_pools[k]
+        #= Empty pool: the component was never sampled, so score it maximally
+           discrepant rather than let the measures divide by zero or throw. =#
+        discs[k] = if isempty(pool)
+            T(Inf)
+        else
+            T(compute_discrepancy(discrepancy, pool; rng=rng))
+        end
     end
 
     return ACDCResult(K, discs, usage)
@@ -170,19 +192,21 @@ KSDiscrepancy() = KSDiscrepancy{Float64}()
 
 Wasserstein-`p` distance between the empirical distribution and ``U([0,1]^D)``.
 Closed-form (sorted samples vs uniform quantiles) for `D=1`; sliced Wasserstein
-(average over random 1D projections) for `D>1`.
+(average over `n_projections` random 1D projections) for `D>1`.
 
 # Fields
 - `p::Int`: order of the Wasserstein distance (default 2).
-- `regularization::T`: unused; kept for API compatibility (default 0.1).
+- `n_projections::Int`: number of random projections for the sliced estimate
+  when `D > 1` (default 50).
 """
 struct WassersteinDiscrepancy{T<:Real} <: ComponentDiscrepancy
     p::Int
-    regularization::T
+    n_projections::Int
 
-    function WassersteinDiscrepancy{T}(; p::Int=2, regularization::T=T(0.1)) where {T<:Real}
+    function WassersteinDiscrepancy{T}(; p::Int=2, n_projections::Int=50) where {T<:Real}
         p > 0 || throw(ArgumentError("p must be positive"))
-        return new{T}(p, regularization)
+        n_projections > 0 || throw(ArgumentError("n_projections must be positive"))
+        return new{T}(p, n_projections)
     end
 end
 
@@ -206,7 +230,10 @@ SquaredErrorDiscrepancy() = SquaredErrorDiscrepancy{Float64}()
 
 Unbiased Maximum Mean Discrepancy with a Gaussian (RBF) kernel between the
 empirical distribution and ``U([0,1]^D)``. Detects cross-dimensional dependence.
-For `N > block_size`, computes the average MMD over blocks to stay ``O(N)``.
+For `N > block_size`, averages the unbiased estimate over near-equal blocks of
+at most `block_size` samples each (no tail is dropped) to stay ``O(N)``. The
+result is clamped at 0, since the unbiased U-statistic can dip slightly
+negative.
 
 # Fields
 - `sigma::T`: kernel bandwidth (default 0.5).
@@ -334,7 +361,7 @@ function compute_discrepancy(
     else
         # Sliced Wasserstein: average over random 1D projections.
         S = T.(samples)
-        n_projections = 50
+        n_projections = d.n_projections
         total_w = zero(T)
         for _ in 1:n_projections
             direction = randn(rng, T, D)
@@ -363,17 +390,20 @@ function compute_discrepancy(
 
     if N <= d.block_size
         reference_uniform = rand(rng, T, D, N)
-        return _compute_mmd_quadratic_unbiased(S, reference_uniform, d.sigma)
+        return max(zero(T), _compute_mmd_quadratic_unbiased(S, reference_uniform, d.sigma))
     end
 
-    # Block strategy for large N: average MMD over disjoint blocks.
-    n_blocks = div(N, d.block_size)
+    #= Block strategy for large N: partition ALL samples into near-equal blocks
+       of at most `block_size` (no tail remainder is dropped) and average the
+       per-block unbiased estimates. The `div(N, 2)` cap keeps every block at
+       ≥ 2 samples, which the U-statistic needs. =#
+    n_blocks = min(cld(N, d.block_size), div(N, 2))
     total_mmd = zero(T)
     for b in 1:n_blocks
-        start_idx = (b - 1) * d.block_size + 1
-        end_idx = b * d.block_size
+        start_idx = div((b - 1) * N, n_blocks) + 1
+        end_idx = div(b * N, n_blocks)
         block_samples = view(S, :, start_idx:end_idx)
-        reference = rand(rng, T, D, d.block_size)
+        reference = rand(rng, T, D, end_idx - start_idx + 1)
         total_mmd += _compute_mmd_quadratic_unbiased(block_samples, reference, d.sigma)
     end
     return max(zero(T), total_mmd / n_blocks)
