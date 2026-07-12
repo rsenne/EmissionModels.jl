@@ -8,7 +8,7 @@
 [![JET](https://img.shields.io/badge/%F0%9F%9B%A9%EF%B8%8F_tested_with-JET.jl-233f9a)](https://github.com/aviatesk/JET.jl)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/JuliaDiff/BlueStyle)
 
-A Julia package providing emission models for [HiddenMarkovModels.jl](https://github.com/baggepinn/HiddenMarkovModels.jl). It supplies ready-to-use distributions that describe how observations are generated conditioned on the HMM's latent states.
+A Julia package providing emission models for [HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl). It supplies ready-to-use distributions that describe how observations are generated conditioned on the HMM's latent states.
 
 ## Quick start
 
@@ -53,17 +53,37 @@ All types implement the `HiddenMarkovModels` emission interface (`rand`, `logden
 | `GaussianGLM(β, σ²)` | Linear regression with Gaussian noise. |
 | `BernoulliGLM(β)` | Logistic regression for binary data. |
 | `PoissonGLM(β)` | Log-linear regression for count data. |
+| `MvGaussianGLM(B, Σ)` | Multivariate linear regression with shared full covariance. |
+| `MvBernoulliGLM(B)` | Independent logistic regressions, one per output dimension. |
+| `MvPoissonGLM(B)` | Independent log-linear regressions, one per output dimension. |
 
-GLM types support regularization via priors:
+The univariate types carry a coefficient vector `β` and emit scalars; the
+multivariate types carry a `p × k` coefficient matrix `B` and emit length-`k`
+vectors. All of them support regularization via priors:
 
 ```julia
-using EmissionModels: RidgePrior
-
-β  = zeros(3)
+β = zeros(3)
 glm = GaussianGLM(β, 1.0, RidgePrior(0.5))  # L2 regularization
 ```
 
-Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (design matrix `X`) maps latent states to the regression covariates.
+Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (design matrix `X`) maps latent states to the regression covariates. Since the GLMs subtype `ControlledEmission`, a vector of them also works directly as the emissions of a `ControlledEmissionHMM`.
+
+## ACDC model selection
+
+The Accumulated Cutoff Discrepancy Criterion (ACDC) picks the number of hidden states without penalizing likelihood by parameter count. It inverts each fitted emission through the probability integral transform to recover per-state "stochastic drivers", which are uniform when the model is well specified, and selects the smallest state count whose per-state discrepancies from uniform all fall below a cutoff.
+
+```julia
+using EmissionModels, HiddenMarkovModels, Distributions
+
+hmm = HMM([0.5, 0.5], [0.95 0.05; 0.05 0.95],
+          [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
+_, obs_seq = rand(hmm, 3000)
+
+result = component_discrepancies(hmm, obs_seq, KSDiscrepancy())
+K = acdc_select([result], 0.05)
+```
+
+It works with any `AbstractHMM` whose emissions are standard `Distributions` objects or the types in this package (including the GLMs, via their covariates). Several discrepancy measures are available: `KSDiscrepancy`, `KLDiscrepancy`, `WassersteinDiscrepancy`, `MMDDiscrepancy`, and `SquaredErrorDiscrepancy`.
 
 ## Creating custom emission models
 

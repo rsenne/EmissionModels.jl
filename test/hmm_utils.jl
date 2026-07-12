@@ -7,23 +7,16 @@ using LinearAlgebra
 function create_hmm(
     emission_model_type; n_states=3, α=10.0, rng=Random.GLOBAL_RNG, kwargs...
 )
-    # Initialize transition matrix and initial distribution
+    # Sticky transitions: α weights the diagonal of each Dirichlet draw.
     trans = Matrix{Float64}(undef, n_states, n_states)
-
-    # Fill transition matrix with sticky transitions
     for i in 1:n_states
         dir_vector = ones(n_states)
-        dir_vector[i] = α  # Make diagonal sticky!
+        dir_vector[i] = α
         trans[i, :] = rand(rng, Dirichlet(dir_vector))
     end
 
-    # Fill initial distribution (uniform Dirichlet)
     init = rand(rng, Dirichlet(ones(n_states)))
-
-    # Create emission models for each state
     emissions = _create_emissions(emission_model_type, n_states, rng; kwargs...)
-
-    # Create and return the HMM
     return HMM(init, trans, emissions)
 end
 
@@ -49,15 +42,12 @@ function _create_emissions(
 )
     emissions = Vector{MultivariateT}(undef, n_states)
     for i in 1:n_states
-        # Random mean vector
         μ = randn(rng, dim) .* 2.0
 
-        # Random positive definite covariance matrix
         A = randn(rng, dim, dim)
-        Σ = A' * A + I  # Ensure positive definite
-        Σ = (Σ + Σ') / 2  # Ensure symmetric
+        Σ = A' * A + I  # positive definite
+        Σ = (Σ + Σ') / 2  # symmetrize
 
-        # Random degrees of freedom
         ν = rand(rng) * (ν_range[2] - ν_range[1]) + ν_range[1]
 
         emissions[i] = MultivariateT(μ, Σ, ν)
@@ -76,13 +66,8 @@ function _create_emissions(
 )
     emissions = Vector{MultivariateTDiag}(undef, n_states)
     for i in 1:n_states
-        # Random mean vector
         μ = randn(rng, dim) .* 2.0
-
-        # Random diagonal variances
         σ² = rand(rng, dim) .* (σ²_range[2] - σ²_range[1]) .+ σ²_range[1]
-
-        # Random degrees of freedom
         ν = rand(rng) * (ν_range[2] - ν_range[1]) + ν_range[1]
 
         emissions[i] = MultivariateTDiag(μ, σ², ν)

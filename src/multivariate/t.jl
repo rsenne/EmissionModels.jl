@@ -106,8 +106,8 @@ mutable struct MultivariateTDiag{T<:Real}
 
         logdetΣ = sum(log, σ²)
 
-        # Copy so the struct never aliases caller arrays (mutating σ² externally
-        # would silently desync the cached logdetΣ).
+        #= Copy so the struct never aliases caller arrays (mutating σ² externally
+           would silently desync the cached logdetΣ). =#
         return new{T}(copy(μ), copy(σ²), ν, logdetΣ, dim)
     end
 end
@@ -302,13 +302,10 @@ function _update_nu(ν0::Real, avg_log_u_minus_u, d::Integer)
     return exp(x)
 end
 
-#= 
-Type-specific hooks for the shared multivariate-t EM driver
-he two variants differ only in how the scale parameter is stored and updated;
-these hooks isolate those differences so the EM scaffold can be written once.
-
-Scale parameter used for the convergence snapshot/diff (Σ matrix or σ² vector).
-=#
+#= Type-specific hooks for the shared multivariate-t EM driver. The two variants
+   differ only in how the scale parameter (Σ matrix or σ² vector) is stored and
+   updated; these hooks isolate those differences so the EM scaffold below can be
+   written once. =#
 _scale_current(dist::MultivariateT) = dist.Σ
 _scale_current(dist::MultivariateTDiag) = dist.σ²
 
@@ -323,9 +320,9 @@ function _scale_maxdiff(dist, scale_old)
     return m
 end
 
-# Per-call EM scratch, allocated once per `fit!` and threaded through the hooks
-# so the distribution structs carry no mutable state: `fit!` on distinct dists
-# and concurrent `logdensityof`/`rand` on a shared dist are then all thread-safe.
+#= Per-call EM scratch, allocated once per `fit!` and threaded through the hooks
+   so the distribution structs carry no mutable state: `fit!` on distinct dists
+   and concurrent `logdensityof`/`rand` on a shared dist are then all thread-safe. =#
 function _em_workspace(dist::MultivariateT)
     T = eltype(dist.μ)
     d = dist.dim
@@ -333,8 +330,8 @@ function _em_workspace(dist::MultivariateT)
 end
 _em_workspace(dist::MultivariateTDiag) = (scatter=zeros(eltype(dist.μ), dist.dim),)
 
-# E-step Mahalanobis² for one observation. The full-covariance variant uses the
-# workspace residual buffers; the diagonal variant needs none (ws is ignored).
+#= E-step Mahalanobis² for one observation. The full-covariance variant uses the
+   workspace residual buffers; the diagonal variant needs none (ws is ignored). =#
 function _mahalanobis²!(dist::MultivariateT, ws, obs_i)
     ws.diff .= obs_i .- dist.μ
     ldiv!(ws.z, dist.Σ_chol.L, ws.diff)
@@ -373,11 +370,11 @@ function _scatter_mstep!(
     end
     #= Σ_acc is PSD by construction and PD whenever the weighted residuals span
        ℝᵈ. Failure means a degenerate observation set (zero variance along some
-       axis) — surface that rather than silently regularizing. =#
+       axis), so surface that rather than silently regularizing. =#
     Σ_chol_new = cholesky(Symmetric(Σ_acc, :L); check=false)
     issuccess(Σ_chol_new) || throw(
         ArgumentError(
-            "Σ M-step is not positive definite — observations are " *
+            "Σ M-step is not positive definite: observations are " *
             "degenerate along at least one dimension. Inspect `obs_seq` " *
             "for collinear or constant components.",
         ),
@@ -402,8 +399,8 @@ function _scatter_mstep!(
             σ²_acc[j] += wp * diff_j^2
         end
     end
-    # Type-aware variance floor (≈1.5e-8 at Float64, scales with precision) to
-    # keep σ² strictly positive without a hardcoded Float64 constant.
+    #= Type-aware variance floor (about 1.5e-8 at Float64, scales with precision)
+       to keep σ² strictly positive without a hardcoded Float64 constant. =#
     var_floor = sqrt(eps(T))
     for j in 1:d
         dist.σ²[j] = max(σ²_acc[j], var_floor)

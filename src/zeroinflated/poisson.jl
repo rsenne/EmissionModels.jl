@@ -51,8 +51,6 @@ function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Integer)
         # P(X=0) = π + (1-π)exp(-λ)
         log_pi = log(dist.π)
         log_1minus_pi_poisson_0 = log(1 - dist.π) - dist.λ
-
-        # log(exp(a) + exp(b))
         return logaddexp(log_pi, log_1minus_pi_poisson_0)
     else
         # log P(X=k) = log(1-π) + k*log(λ) - λ - log(k!)
@@ -64,17 +62,13 @@ end
 """
 	rand(rng::AbstractRNG, dist::PoissonZeroInflated)
 
-Generate a random sample from the zero-inflated Poisson distribution.
-
-Uses a two-stage process: first decide if observation comes from zero-inflation,
-then sample from Poisson if not.
+Generate a random sample from the zero-inflated Poisson distribution: a
+structural zero with probability π, otherwise a draw from Poisson(λ).
 """
 function Random.rand(rng::Random.AbstractRNG, dist::PoissonZeroInflated)
-    # First, decide if we get a structural zero
     if rand(rng) < dist.π
         return 0
     else
-        # Sample from Poisson(λ)
         return rand(rng, Poisson(dist.λ))
     end
 end
@@ -90,17 +84,14 @@ end
 """
 	fit!(dist::PoissonZeroInflated, obs_seq, weight_seq)
 
-Fit the zero-inflated Poisson parameters using weighted EM algorithm.
+Fit the zero-inflated Poisson parameters to weighted observations by EM, in
+place. The E-step computes the posterior probability that each zero is
+structural; the M-step updates π and λ from the weighted responsibilities.
 
 # Arguments
-- `dist`: PoissonZeroInflated instance to update in-place
-- `obs_seq`: Sequence of integer observations
-- `weight_seq`: Sequence of weights (typically posterior state probabilities from HMM)
-
-# Algorithm
-Uses EM to estimate π and λ:
-- E-step: Compute posterior probability that each zero is structural vs sampling zero
-- M-step: Update π and λ based on weighted responsibilities
+- `dist`: PoissonZeroInflated instance to update in place
+- `obs_seq`: sequence of integer observations
+- `weight_seq`: per-observation weights (e.g. HMM posterior state probabilities)
 """
 function StatsAPI.fit!(
     dist::PoissonZeroInflated,
@@ -112,7 +103,6 @@ function StatsAPI.fit!(
     length(obs_seq) == length(weight_seq) ||
         throw(DimensionMismatch("obs_seq and weight_seq must have the same length"))
 
-    # Handle edge cases
     total_weight = sum(weight_seq)
     if total_weight == 0 || isempty(obs_seq)
         return dist
@@ -129,58 +119,47 @@ function StatsAPI.fit!(
         old_λ = dist.λ
         old_π = dist.π
 
-        # Initialize M-step accumulators
         weighted_structural_zeros = zero(total_weight)
         weighted_sum_x = zero(total_weight)
         weight_non_structural = zero(total_weight)
 
         prob_sampling_zero = exp(-dist.λ)
 
-        # Integrated E-step and M-step (avoids allocation)
+        # E-step and M-step accumulation fused into one pass (no allocation).
         for i in eachindex(obs_seq)
             w = weight_seq[i]
             x = obs_seq[i]
 
             if x == 0
-                # E-step: Compute P(structural | X=0)
+                # P(structural | X=0)
                 prob_structural = dist.π
                 prob_sampling = (1 - dist.π) * prob_sampling_zero
                 total = prob_structural + prob_sampling
-
-                # Check for numerical stability issues (total ~= 0)
                 if total < epsilon
-                    p_structural_zero = 1.0 # Assume structural if all probs near zero
+                    p_structural_zero = 1.0 # treat as structural when both probs vanish
                 else
                     p_structural_zero = prob_structural / total
                 end
 
-                # M-step update for π
                 weighted_structural_zeros += w * p_structural_zero
-
-                # M-step update for λ denominator: (1 - P(structural | X=0)) * w
                 weight_non_structural += w * (1 - p_structural_zero)
-
-            else # x > 0
-                # E-step: P(structural | X=x>0) = 0
-
-                # M-step update for λ denominator and numerator
+            else
+                # A positive count cannot be structural.
                 weight_non_structural += w
                 weighted_sum_x += w * x
             end
         end
 
-        # M-step: Final parameter update
         dist.π = weighted_structural_zeros / total_weight
         dist.π = clamp(dist.π, epsilon, 1 - epsilon)
 
         if weight_non_structural > 0
             dist.λ = weighted_sum_x / weight_non_structural
         else
-            dist.λ = epsilon # Fallback if no non-structural observations
+            dist.λ = epsilon # no non-structural mass left
         end
         dist.λ = max(dist.λ, epsilon)
 
-        # Check convergence
         if abs(dist.λ - old_λ) < tol && abs(dist.π - old_π) < tol
             break
         end

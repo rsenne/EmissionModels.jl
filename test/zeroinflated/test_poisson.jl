@@ -32,22 +32,18 @@ include("../hmm_utils.jl")
     @testset "DensityInterface" begin
         dist = PoissonZeroInflated(3.0, 0.3)
 
-        # Verify HasDensity trait
         @test DensityKind(dist) == HasDensity()
 
-        # Test log density for zero
         # P(X=0) = π + (1-π)exp(-λ) = 0.3 + 0.7*exp(-3.0)
         expected_p0 = 0.3 + 0.7 * exp(-3.0)
         @test logdensityof(dist, 0) ≈ log(expected_p0) rtol = 1e-10
 
-        # Test log density for positive values
         # P(X=k) = (1-π) * λ^k * exp(-λ) / k!
         for k in 1:5
             expected = log(1 - 0.3) + k * log(3.0) - 3.0 - loggamma(k + 1)
             @test logdensityof(dist, k) ≈ expected rtol = 1e-10
         end
 
-        # Test negative values return -Inf
         @test logdensityof(dist, -1) == -Inf
     end
 
@@ -55,7 +51,6 @@ include("../hmm_utils.jl")
         rng = Random.MersenneTwister(42)
         dist = PoissonZeroInflated(5.0, 0.4)
 
-        # Generate samples
         n_samples = 10000
         samples = [rand(rng, dist) for _ in 1:n_samples]
 
@@ -63,7 +58,7 @@ include("../hmm_utils.jl")
         @test all(s >= 0 for s in samples)
         @test all(s isa Integer for s in samples)
 
-        # Check empirical zero inflation
+        # Empirical zero fraction should match the mixture.
         zero_proportion = count(==(0), samples) / n_samples
         # Should have more zeros than regular Poisson
         poisson_zero_prob = exp(-5.0)
@@ -71,7 +66,7 @@ include("../hmm_utils.jl")
         @test zero_proportion > poisson_zero_prob
         @test zero_proportion ≈ zip_zero_prob atol = 0.05
 
-        # Check empirical mean of non-zero samples
+        # Empirical mean of the nonzero samples.
         nonzero_samples = filter(>(0), samples)
         if !isempty(nonzero_samples)
             # Mean of non-zeros should be close to λ
@@ -85,12 +80,10 @@ include("../hmm_utils.jl")
         true_π = 0.25
         true_dist = PoissonZeroInflated(true_λ, true_π)
 
-        # Generate synthetic data
         n = 1000
         obs = [rand(rng, true_dist) for _ in 1:n]
         weights = ones(n)
 
-        # Fit distribution
         fitted_dist = PoissonZeroInflated(1.0, 0.1)  # Start with different values
         fit!(fitted_dist, obs, weights)
 
@@ -100,7 +93,6 @@ include("../hmm_utils.jl")
     end
 
     @testset "fit! with weighted observations" begin
-        # Create observations with varying weights
         obs = [0, 0, 0, 1, 2, 3, 4, 5]
         weights = [2.0, 1.5, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5]
 
@@ -111,7 +103,7 @@ include("../hmm_utils.jl")
         @test 0 < dist.π < 1
         @test dist.λ > 0
 
-        # Verify it handles the weighted data
+        # Weighted data should fit without issue.
         @test dist.π > 0.1  # Should detect some zero inflation
     end
 
@@ -151,32 +143,27 @@ include("../hmm_utils.jl")
     end
 
     @testset "Integration test" begin
-        # Simulate a complete workflow like HMM would use
+        # Simulate the full workflow an HMM fit would drive.
         rng = Random.MersenneTwister(456)
 
-        # Create true distribution
         true_dist = PoissonZeroInflated(6.0, 0.15)
 
-        # Generate observations
         n_obs = 500
         observations = [rand(rng, true_dist) for _ in 1:n_obs]
 
         # Simulate HMM posterior weights (random weights summing to reasonable values)
         weights = rand(rng, n_obs) .+ 0.5
 
-        # Fit new distribution
         fitted = PoissonZeroInflated(1.0, 0.5)
         fit!(fitted, observations, weights)
 
-        # Check that fitted parameters are reasonable
+        # Fitted parameters should be sane.
         @test 0 < fitted.π < 1
         @test fitted.λ > 0
 
-        # Generate new samples from fitted distribution
         new_samples = [rand(rng, fitted) for _ in 1:100]
         @test all(s >= 0 for s in new_samples)
 
-        # Compute log densities
         log_probs = [logdensityof(fitted, obs) for obs in observations[1:10]]
         @test all(isfinite, log_probs)
     end
@@ -184,39 +171,32 @@ include("../hmm_utils.jl")
     @testset "HMM Integration" begin
         rng = Random.MersenneTwister(777)
 
-        # Create HMM with PoissonZeroInflated emissions using create_hmm utility
         hmm = create_hmm(PoissonZeroInflated; n_states=3, α=15.0, rng=rng)
 
-        # Verify HMM structure
         @test length(hmm.init) == 3
         @test size(hmm.trans) == (3, 3)
         @test length(hmm.dists) == 3
 
-        # Verify all emissions are PoissonZeroInflated
         @test all(dist -> dist isa PoissonZeroInflated, hmm.dists)
 
-        # Verify transition matrix is stochastic
         @test all(sum(hmm.trans; dims=2) .≈ 1.0)
         @test sum(hmm.init) ≈ 1.0
 
-        # Generate observations from the HMM
         state_seq, obs_seq = rand(rng, hmm, 100)
         @test length(state_seq) == 100
         @test length(obs_seq) == 100
         @test all(obs -> obs >= 0, obs_seq)
 
-        # Verify we can compute forward algorithm
         log_alpha, log_ll = forward(hmm, obs_seq)
         @test size(log_alpha) == (3, 100)
         @test all(isfinite, log_alpha)
         @test all(isfinite, log_ll)
 
-        # Verify we can run Baum-Welch to fit the HMM
         hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
         @test length(lls) <= 5
         @test all(isfinite, lls)
 
-        # Test with custom parameters
+        # Again with custom parameters.
         hmm_custom = create_hmm(
             PoissonZeroInflated;
             n_states=4,

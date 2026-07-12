@@ -19,7 +19,7 @@ The first form returns a single sample. The second form (optional) samples `n` i
 DensityInterface.DensityKind(::MyEmission) = DensityInterface.HasDensity()
 ```
 
-Return `HasDensity()` if `logdensityof` is implemented; otherwise return `NotAdjointDensity()`.
+Return `HasDensity()` so the HMM machinery knows `logdensityof` is available.
 
 ### 3. Evaluate log-density / log-probability-mass
 
@@ -43,17 +43,20 @@ StatsAPI.fit!(dist::MyEmission, obs_seq, weight_seq; max_iter=100, tol=1e-6)
 
 ## Optional: Conditional emissions (with control vectors)
 
-If your model depends on a design vector, add a `control` keyword to `logdensityof` and `rand`:
+If your model depends on a design vector, add a `control_seq` keyword to
+`logdensityof` and `rand`, following the convention of the GLM types in this
+package:
 
 ```julia
-DensityInterface.logdensityof(dist::MyEmission, obs; control=nothing)
-Random.rand([rng,] dist::MyEmission; control=nothing)
+DensityInterface.logdensityof(dist::MyEmission, obs; control_seq)
+Random.rand([rng,] dist::MyEmission; control_seq)
 ```
 
 ## Example: Bernoulli emission
 
 ```julia
 using Random, DensityInterface, StatsAPI
+using LinearAlgebra: dot
 
 mutable struct MyBernoulli{T<:Real}
     p::T  # probability of success

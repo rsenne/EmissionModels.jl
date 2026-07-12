@@ -46,9 +46,9 @@ Full-covariance multivariate Student's t-distribution.
 **Example:**
 
 ```julia
-μ   = [0.0, 1.0]
-Σ   = [1.0 0.5; 0.5 2.0]
-dist = MultivariateT(μ, Σ, ν=5.0)
+μ = [0.0, 1.0]
+Σ = [1.0 0.5; 0.5 2.0]
+dist = MultivariateT(μ, Σ, 5.0)
 x = rand(dist)
 lp = logdensityof(dist, x)
 ```
@@ -66,21 +66,22 @@ Diagonal-covariance multivariate Student's t-distribution (more efficient for hi
 **Example:**
 
 ```julia
-dist = MultivariateTDiag([0.0, 0.0], [1.0, 2.0], ν=5.0)
+dist = MultivariateTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
 ```
 
 ## Parameter estimation (`fit!`)
 
-All multivariate t-distributions are fit via a weighted EM algorithm:
+The multivariate t-distributions are fit via a weighted EM (ECME) algorithm:
 
 ```julia
 fit!(dist, obs_seq, weight_seq; max_iter=100, tol=1e-6, fix_nu=false)
 ```
 
 - The E-step posterior weights depend on the current Mahalanobis distance.
-- The M-step updates ``μ`` and ``Σ`` (and optionally ``ν``).
+- The M-step updates ``μ``, the scale (``Σ`` or ``σ²``), and optionally ``ν``.
 - Pass `fix_nu=true` to keep the degrees of freedom fixed during fitting.
-- `μ` and ``Σ`` are re-regularized on-the-fly if the Cholesky factorization fails.
+- If the observations are degenerate (zero variance along some axis), the
+  scale update throws an `ArgumentError` rather than silently regularizing.
 
 ## API Reference
 

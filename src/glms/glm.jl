@@ -6,13 +6,13 @@ Abstract type for Generalized Linear Model emission distributions.
 Subtyping `ControlledEmission` lets a `Vector` of GLMs serve as the `dists` of a
 `HiddenMarkovModels.ControlledEmissionHMM`. Each concrete GLM implements the
 keyword (`control_seq`) interface internally:
-- `DensityInterface.logdensityof(glm, obs; control_seq)` — log density
-- `Random.rand(rng, glm; control_seq)` — conditional sample
-- `StatsAPI.fit!(glm, obs_seq, weight_seq; control_seq)` — weighted in-place update
+- `DensityInterface.logdensityof(glm, obs; control_seq)`: log density
+- `Random.rand(rng, glm; control_seq)`: conditional sample
+- `StatsAPI.fit!(glm, obs_seq, weight_seq; control_seq)`: weighted in-place update
 
-and the `ControlledEmission` positional signatures HMM expects — `logdensityof(glm,
-obs, control)`, `rand(rng, glm, control)`, `fit!(glm, obs_seq, control_seq, weights)`
-— are provided as thin adapters at the bottom of this file. `DensityKind` is
+The `ControlledEmission` positional signatures HMM expects (`logdensityof(glm,
+obs, control)`, `rand(rng, glm, control)`, `fit!(glm, obs_seq, control_seq, weights)`)
+are provided as thin adapters at the bottom of this file. `DensityKind` is
 inherited from `ControlledEmission`.
 
 Univariate types (`GaussianGLM`, `BernoulliGLM`, `PoissonGLM`) carry a coefficient
@@ -28,9 +28,9 @@ abstract type AbstractGLM <: ControlledEmission end
 Supertype for priors on GLM coefficients β.
 
 Subtypes must implement:
-- `neglogprior(prior, β)` → scalar negative log-prior (up to constant)
-- `neglogprior_grad!(prior, g, β)` → accumulate ∂(-log p(β))/∂β into `g`
-- `neglogprior_hess!(prior, H, β)` → accumulate ∂²(-log p(β))/∂β² into `H`
+- `neglogprior(prior, β)`: scalar negative log-prior (up to a constant)
+- `neglogprior_grad!(prior, g, β)`: accumulate ∂(-log p(β))/∂β into `g`
+- `neglogprior_hess!(prior, H, β)`: accumulate ∂²(-log p(β))/∂β² into `H`
 
 The gradient and Hessian methods accumulate (+=) rather than overwrite so
 multiple priors can compose additively.
@@ -40,7 +40,7 @@ abstract type AbstractPrior end
 """
     NoPrior <: AbstractPrior
 
-Flat (improper uniform) prior — no regularization.
+Flat (improper uniform) prior, i.e. no regularization.
 """
 struct NoPrior <: AbstractPrior end
 
@@ -176,7 +176,7 @@ function StatsAPI.fit!(
     F = cholesky!(Symmetric(XWX, :L); check=false)
     issuccess(F) || throw(
         ArgumentError(
-            "XᵀWX is not positive definite — `control_seq` is rank-deficient " *
+            "XᵀWX is not positive definite: `control_seq` is rank-deficient " *
             "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
             "drop collinear columns from `control_seq`.",
         ),
@@ -195,10 +195,10 @@ function StatsAPI.fit!(
     return reg
 end
 
-#= Optim-based Newton solver shared by Bernoulli and Poisson GLM fits. Each
-   family provides a fused `fgh!(F, G, H, β)` functor: objective, gradient and
-   Hessian computed in a single pass over the data mirrors the ν-update pattern 
-   in `multivariate/t.jl`. =#
+#= Optim-based Newton solver shared by the Bernoulli and Poisson GLM fits. Each
+   family provides a fused `fgh!(F, G, H, β)` functor that computes the objective,
+   gradient and Hessian in a single pass over the data, mirroring the ν-update
+   pattern in `multivariate/t.jl`. =#
 
 #= Lazy column accessor: indexing into a Vector{Vector{T}} along output dim j
    without copying. Used by the multivariate GLM fits to avoid an n-sized
@@ -272,12 +272,11 @@ end
 
 #= Bound η so that exp(η) stays well below floatmax(T), with a few nats of
    headroom for the w·exp(η) products that accumulate downstream. Type-aware:
-   ≈707 for Float64, ≈86 for Float32 — replaces the previous arbitrary ±500
-   constant, which was both Float64-only and a magic number. =#
+   about 707 for Float64, 86 for Float32. =#
 @inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
 
-# Fused Poisson negative log-posterior, same `fgh!(F, G, H, β)` contract as
-# `_BernoulliFGH`.
+#= Fused Poisson negative log-posterior, same `fgh!(F, G, H, β)` contract as
+   `_BernoulliFGH`. =#
 struct _PoissonFGH{
     Y<:AbstractVector,W<:AbstractVector{<:Real},M<:AbstractMatrix{<:Real},P<:AbstractPrior
 }
@@ -622,7 +621,8 @@ MvGaussianGLM(B::AbstractMatrix, Σ::AbstractMatrix) = MvGaussianGLM(B, Σ, NoPr
     logdensityof(glm::MvGaussianGLM, y::AbstractVector; control_seq)
 
 Log density of `y ∈ ℝᵏ` under the conditional MvNormal model. Allocates one
-length-`k` residual vector per call — thread-safe (matches `Distributions.MvNormal`).
+length-`k` residual vector per call and is thread-safe (matches
+`Distributions.MvNormal`).
 """
 function DensityInterface.logdensityof(
     glm::MvGaussianGLM, y::AbstractVector; control_seq::AbstractVector{<:Real}
@@ -642,7 +642,7 @@ function DensityInterface.logdensityof(
 
     #= μ = Bᵀ x and diff = y − μ, fused as a single loop to avoid the
        Adjoint*Vector temporary that BLAS would otherwise allocate. The output
-       type is `eltype(B)` — inputs in higher precision are downcast on entry
+       type is `eltype(B)`: inputs in higher precision are downcast on entry
        and the residual buffer stays at the struct's float type. =#
     for j in 1:k
         sj = zero(T)
@@ -737,9 +737,7 @@ function StatsAPI.fit!(
     XWY = zeros(T, p, k)
     wsum = zero(T)
 
-    #= Build XᵀWX and XᵀWY in a single pass — no Y matrix, no temporaries.
-       XᵀWX is symmetric: only the lower triangle is accumulated (stride-1 in
-       the first index); the Cholesky below reads uplo = :L. =#
+    # Build XᵀWX and XᵀWY in a single pass, with no Y matrix or temporaries.
     for i in 1:n
         obs_i = obs_seq[i]
         length(obs_i) == k ||
@@ -765,12 +763,12 @@ function StatsAPI.fit!(
     neglogprior_hess!(glm.prior, XWX, view(glm.B, :, 1))
 
     #= XᵀWX is PD whenever the (weighted) design matrix has full column rank.
-       Failure here means rank-deficient `control_seq` — surface that as a
+       Failure here means rank-deficient `control_seq`, so surface that as a
        clear error rather than silently shifting eigenvalues. =#
     F = cholesky!(Symmetric(XWX, :L); check=false)
     issuccess(F) || throw(
         ArgumentError(
-            "XᵀWX is not positive definite — `control_seq` is rank-deficient " *
+            "XᵀWX is not positive definite: `control_seq` is rank-deficient " *
             "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
             "drop collinear columns from `control_seq`.",
         ),
@@ -809,11 +807,11 @@ function StatsAPI.fit!(
 
     #= Σ_new is Σwᵢ·rᵢrᵢᵀ / Σwᵢ, which is PSD by construction and PD whenever
        the residuals span ℝᵏ. Failure means a degenerate output dimension
-       (zero variance) — error rather than silently regularize. =#
+       (zero variance), so error rather than silently regularize. =#
     Σ_chol_new = cholesky(Symmetric(Σ_new, :L); check=false)
     issuccess(Σ_chol_new) || throw(
         ArgumentError(
-            "Residual covariance Σ is not positive definite — at least one " *
+            "Residual covariance Σ is not positive definite: at least one " *
             "output dimension has zero (or perfectly collinear) residual " *
             "variance. Check `obs_seq` for degenerate output columns.",
         ),
@@ -1131,13 +1129,14 @@ function StatsAPI.fit!(
     return glm
 end
 
-#= ─── HiddenMarkovModels.ControlledEmission interface ───────────────────────
+#= HiddenMarkovModels.ControlledEmission interface.
+
    `AbstractGLM <: ControlledEmission`, so a `Vector` of GLMs is a valid `dists`
    for a `ControlledEmissionHMM`. That HMM drives each emission through the
-   control-aware *positional* signatures below; each `control` is a single
-   timestep's covariate vector — exactly the `control_seq` argument the keyword
-   methods above already consume — and the fit-time `control_seq` is a vector of
-   such vectors (one per timestep). The adapters delegate to the keyword
+   control-aware positional signatures below; each `control` is a single
+   timestep's covariate vector (the same `control_seq` argument the keyword
+   methods above already consume), and the fit-time `control_seq` is a vector of
+   such vectors, one per timestep. The adapters delegate to the keyword
    implementations so the actual math has a single source of truth. =#
 
 # Length of one covariate vector for this GLM (the GLM's input dimension `p`).

@@ -11,7 +11,7 @@
      through Φ.
    - PoissonZeroInflated: randomized PIT against the ZIP CDF
      F(k) = π + (1-π)·F_Poisson(k).
-   - MultivariateT / MultivariateTDiag: the conditional-t Rosenblatt — whiten
+   - MultivariateT / MultivariateTDiag: the conditional-t Rosenblatt; whiten
      the residual to a standardized spherical t, then push each coordinate
      through its conditional Student-t CDF. (A Gaussian-style whiten-then-Φ is
      wrong here: whitened t-coordinates are uncorrelated but not independent.)
@@ -27,8 +27,8 @@
    for a covariate-dependent emission) returning a `Vector` of drivers in [0,1].
    The `rng` feeds the randomized PITs so driver recovery is reproducible. =#
 
-# Clamp a PIT value strictly inside (0,1); the discrepancy measures map drivers
-# through the probit transform, which is ±Inf at the boundary.
+#= Clamp a PIT value strictly inside (0,1); the discrepancy measures map drivers
+   through the probit transform, which is ±Inf at the boundary. =#
 _clamp01(u::T) where {T<:Real} = clamp(u, eps(T), one(T) - eps(T))
 
 # Draw a category index from probability vector `p` (assumed to sum to ≈1).
@@ -42,8 +42,8 @@ function _sample_categorical(rng::AbstractRNG, p::AbstractVector{T}) where {T<:R
     return lastindex(p)
 end
 
-# Recover the stochastic drivers for a single observation under emission `dist`.
-# Returns a length-`D` vector of values in (0,1).
+#= Recover the stochastic drivers for a single observation under emission `dist`.
+   Returns a length-`D` vector of values in (0,1). =#
 function _emission_to_driver end
 
 # Continuous univariate: standard PIT through the CDF (no randomness needed).
@@ -58,9 +58,9 @@ function _emission_to_driver(rng::AbstractRNG, d::DiscreteUnivariateDistribution
     return [_clamp01(lower + rand(rng) * (upper - lower))]
 end
 
-# Multivariate normal: Rosenblatt transform = whiten residual, then push each
-# whitened coordinate through Φ. Whitening with the lower-Cholesky factor yields
-# independent N(0,1) coordinates, so the result is uniform under the true model.
+#= Multivariate normal: Rosenblatt transform = whiten residual, then push each
+   whitened coordinate through Φ. Whitening with the lower-Cholesky factor yields
+   independent N(0,1) coordinates, so the result is uniform under the true model. =#
 function _emission_to_driver(::AbstractRNG, d::AbstractMvNormal, obs::AbstractVector)
     μ = mean(d)
     L = cholesky(Symmetric(Matrix(cov(d)))).L
@@ -68,9 +68,9 @@ function _emission_to_driver(::AbstractRNG, d::AbstractMvNormal, obs::AbstractVe
     return [_clamp01(float(cdf(Normal(), zi))) for zi in z]
 end
 
-# Zero-inflated Poisson: randomized PIT against the ZIP CDF. The mixture CDF is
-# F(k) = π + (1-π)·F_Poisson(k) for k ≥ 0; the structural-zero mass collapses
-# into F(0), so a true zero still maps uniformly into [0, F(0)].
+#= Zero-inflated Poisson: randomized PIT against the ZIP CDF. The mixture CDF is
+   F(k) = π + (1-π)·F_Poisson(k) for k ≥ 0; the structural-zero mass collapses
+   into F(0), so a true zero still maps uniformly into [0, F(0)]. =#
 function _emission_to_driver(rng::AbstractRNG, d::PoissonZeroInflated, obs::Real)
     pois = Poisson(d.λ)
     upper = d.π + (1 - d.π) * cdf(pois, obs)
@@ -78,12 +78,12 @@ function _emission_to_driver(rng::AbstractRNG, d::PoissonZeroInflated, obs::Real
     return [_clamp01(float(lower + rand(rng) * (upper - lower)))]
 end
 
-# Multivariate Student-t (full and diagonal scale): the conditional-t Rosenblatt
-# transform. Whitening the residual yields a standardized spherical t whose
-# coordinates are uncorrelated but share the common χ² scale, so they are NOT
-# independent — pushing each through Φ (as for a Gaussian) would be wrong. The
-# correct map sends each whitened coordinate through its conditional Student-t
-# CDF, which has ν+(j-1) degrees of freedom and scale √((ν+Σ_{i<j} zᵢ²)/(ν+j-1)).
+#= Multivariate Student-t (full and diagonal scale): the conditional-t Rosenblatt
+   transform. Whitening the residual yields a standardized spherical t whose
+   coordinates are uncorrelated but share the common χ² scale, so they are not
+   independent and pushing each through Φ (as for a Gaussian) would be wrong. The
+   correct map sends each whitened coordinate through its conditional Student-t
+   CDF, which has ν+(j-1) degrees of freedom and scale √((ν+Σ_{i<j} zᵢ²)/(ν+j-1)). =#
 function _emission_to_driver(::AbstractRNG, d::MultivariateT, obs::AbstractVector)
     z = d.Σ_chol.L \ (collect(float.(obs)) .- d.μ)
     return _conditional_t_drivers(z, d.ν)
@@ -112,15 +112,15 @@ end
 GLMs are conditional emissions f(y | x); the driver is the conditional PIT
 F(y | x). Rather than re-deriving a randomized PIT per family, we reduce each
 GLM at covariate `x` to the standard `Distributions` emission it is, then route
-through the recipes above. 
+through the recipes above.
 
 The covariate reaches drivers via a 4-arg `_emission_to_driver(rng, dist, obs, x)`.
-The generic method ignores `x`, so every non-GLM emission (Normal, ZIP, MvT, …)
+The generic method ignores `x`, so every non-GLM emission (Normal, ZIP, MvT, ...)
 is unaffected; only GLMs override it.
 =#
 
-# Conditional `Distributions` emission of a GLM at covariate `x`. `β`/`B` already
-# absorb any intercept (it must be a column of `x`), matching the GLM densities.
+#= Conditional `Distributions` emission of a GLM at covariate `x`. `β`/`B` already
+   absorb any intercept (it must be a column of `x`), matching the GLM densities. =#
 _conditional(g::GaussianGLM, x) = Normal(dot(g.β, x), sqrt(g.σ2))
 _conditional(g::BernoulliGLM, x) = Bernoulli(logistic(dot(g.β, x)))
 _conditional(g::PoissonGLM, x) = Poisson(exp(dot(g.β, x)))
@@ -131,15 +131,16 @@ function _emission_to_driver(rng::AbstractRNG, dist, obs, control)
     return _emission_to_driver(rng, dist, obs)
 end
 
-# Univariate and correlated-multivariate (Gaussian) GLMs: reduce, then reuse the
-# conditional PIT. MvGaussianGLM has correlated outputs ⇒ the MvNormal Rosenblatt.
+#= Univariate and correlated-multivariate (Gaussian) GLMs: reduce, then reuse the
+   conditional PIT. MvGaussianGLM has correlated outputs, so it gets the MvNormal
+   Rosenblatt. =#
 function _emission_to_driver(rng::AbstractRNG, g::AbstractGLM, obs, x)
     return _emission_to_driver(rng, _conditional(g, x), obs)
 end
 
-# Independent-by-column multivariate GLMs: stack per-coordinate randomized PITs.
-# The columns are independent given `x`, so the stacked drivers are genuinely
-# independent uniforms — no joint Rosenblatt needed.
+#= Independent-by-column multivariate GLMs: stack per-coordinate randomized PITs.
+   The columns are independent given `x`, so the stacked drivers are genuinely
+   independent uniforms and no joint Rosenblatt is needed. =#
 function _emission_to_driver(rng::AbstractRNG, g::MvBernoulliGLM, obs::AbstractVector, x)
     η = g.B' * x
     return [
@@ -152,19 +153,19 @@ function _emission_to_driver(rng::AbstractRNG, g::MvPoissonGLM, obs::AbstractVec
     return [_emission_to_driver(rng, Poisson(exp(η[j])), obs[j])[1] for j in eachindex(η)]
 end
 
-# 3-arg form on a GLM: no covariate to condition on — point at the 4-arg hook.
+# 3-arg form on a GLM: no covariate to condition on, so point at the 4-arg hook.
 function _emission_to_driver(::AbstractRNG, g::AbstractGLM, obs)
     throw(
         ArgumentError(
-            "GLM emission $(typeof(g)) is conditional on a covariate — call " *
+            "GLM emission $(typeof(g)) is conditional on a covariate; call " *
             "`EmissionModels._emission_to_driver(rng, glm, obs, control)` with the " *
             "covariate vector for that observation.",
         ),
     )
 end
 
-# Clear error for emission types without a PIT recipe, pointing the user at the
-# extension hook.
+#= Clear error for emission types without a PIT recipe, pointing the user at the
+   extension hook. =#
 function _emission_to_driver(::AbstractRNG, d, obs)
     throw(
         ArgumentError(
