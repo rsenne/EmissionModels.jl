@@ -169,6 +169,7 @@ function StatsAPI.fit!(
             XWy[a] += wxa * y_i
         end
     end
+    wsum > 0 || throw(ArgumentError("weights must have positive sum, got $wsum"))
 
     # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
     neglogprior_hess!(reg.prior, XWX, reg.β)
@@ -190,7 +191,10 @@ function StatsAPI.fit!(
         r_i = T(obs_seq[i]) - dot(reg.β, x_i)
         sw_r2 += T(weights[i]) * r_i * r_i
     end
-    reg.σ2 = sw_r2 / wsum
+    #= Type-aware variance floor (same floor as the diagonal-t M-step): a
+       perfect fit (e.g. n ≤ p) would otherwise set σ2 = 0, breaking the
+       σ2 > 0 invariant and turning every later logdensityof into NaN. =#
+    reg.σ2 = max(sw_r2 / wsum, sqrt(eps(T)))
 
     return reg
 end
@@ -337,8 +341,11 @@ function _newton_fit!(β::Vector{T}, fgh::F; max_iter::Int, gtol::Real) where {T
     return β
 end
 
-# Internal helpers used by univariate `BernoulliGLM.fit!` / `PoissonGLM.fit!`.
-function _fit_bernoulli_glm!(
+#= Shared validation + Newton driver for the univariate `BernoulliGLM.fit!` /
+   `PoissonGLM.fit!`. `FGH` is the family's fused functor type (`_BernoulliFGH`
+   or `_PoissonFGH`); the two fits are otherwise identical. =#
+function _fit_glm_newton!(
+    FGH::Type,
     β::Vector{T},
     obs_seq::AbstractVector,
     weight_seq::AbstractVector{<:Real},
@@ -356,29 +363,7 @@ function _fit_bernoulli_glm!(
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
-    fgh = _BernoulliFGH(obs_seq, weight_seq, control_seq, prior)
-    return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
-end
-
-function _fit_poisson_glm!(
-    β::Vector{T},
-    obs_seq::AbstractVector,
-    weight_seq::AbstractVector{<:Real},
-    control_seq::AbstractMatrix{<:Real},
-    prior::AbstractPrior;
-    max_iter::Int=50,
-    gtol::Real=1e-8,
-) where {T<:Real}
-    n, p = size(control_seq)
-    length(obs_seq) == n ||
-        throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weight_seq) == n || throw(
-        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
-    )
-    length(β) == p ||
-        throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
-
-    fgh = _PoissonFGH(obs_seq, weight_seq, control_seq, prior)
+    fgh = FGH(obs_seq, weight_seq, control_seq, prior)
     return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
 end
 
@@ -428,8 +413,10 @@ function BernoulliGLM(β::AbstractVector, prior::AbstractPrior)
 end
 BernoulliGLM(β::AbstractVector) = BernoulliGLM(β, NoPrior())
 
+#= Observations are accepted as any Real (a 0/1 count stored as Float64 is
+   common in HMM obs sequences); anything outside {0, 1} has zero mass. =#
 function DensityInterface.logdensityof(
-    glm::BernoulliGLM, y::Integer; control_seq::AbstractVector{<:Real}
+    glm::BernoulliGLM, y::Real; control_seq::AbstractVector{<:Real}
 )
     T = float(promote_type(eltype(glm.β), eltype(control_seq)))
     (y == 0 || y == 1) || return T(-Inf)
@@ -463,8 +450,15 @@ function StatsAPI.fit!(
     max_iter::Int=50,
     gtol::Real=1e-8,
 )
-    _fit_bernoulli_glm!(
-        glm.β, obs_seq, weight_seq, control_seq, glm.prior; max_iter=max_iter, gtol=gtol
+    _fit_glm_newton!(
+        _BernoulliFGH,
+        glm.β,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        glm.prior;
+        max_iter=max_iter,
+        gtol=gtol,
     )
     return glm
 end
@@ -506,16 +500,19 @@ function PoissonGLM(β::AbstractVector, prior::AbstractPrior)
 end
 PoissonGLM(β::AbstractVector) = PoissonGLM(β, NoPrior())
 
+#= Observations are accepted as any Real (counts stored as Float64 are common
+   in HMM obs sequences); non-integer or negative values have zero mass.
+   `loggamma(y + 1)` is `logfactorial(y)` extended to float arguments. =#
 function DensityInterface.logdensityof(
-    glm::PoissonGLM, y::Integer; control_seq::AbstractVector{<:Real}
+    glm::PoissonGLM, y::Real; control_seq::AbstractVector{<:Real}
 )
     T = float(promote_type(eltype(glm.β), eltype(control_seq)))
-    y >= 0 || return T(-Inf)
+    (y >= 0 && isinteger(y)) || return T(-Inf)
     η = zero(T)
     for i in eachindex(glm.β, control_seq)
         η += glm.β[i] * control_seq[i]
     end
-    return T(y) * η - exp(η) - T(logfactorial(y))
+    return T(y) * η - exp(η) - T(loggamma(T(y) + one(T)))
 end
 
 function Random.rand(rng::AbstractRNG, glm::PoissonGLM; control_seq::AbstractVector{<:Real})
@@ -539,8 +536,15 @@ function StatsAPI.fit!(
     max_iter::Int=50,
     gtol::Real=1e-8,
 )
-    _fit_poisson_glm!(
-        glm.β, obs_seq, weight_seq, control_seq, glm.prior; max_iter=max_iter, gtol=gtol
+    _fit_glm_newton!(
+        _PoissonFGH,
+        glm.β,
+        obs_seq,
+        weight_seq,
+        control_seq,
+        glm.prior;
+        max_iter=max_iter,
+        gtol=gtol,
     )
     return glm
 end
@@ -756,6 +760,8 @@ function StatsAPI.fit!(
             end
         end
     end
+
+    wsum > 0 || throw(ArgumentError("weights must have positive sum, got $wsum"))
 
     #= Per-column ridge: λI added to XᵀWX gives B = (XᵀWX + λI) \ XᵀWY,
        the joint MAP for independent N(0, (1/λ)I) priors on each column of B.
@@ -1036,12 +1042,13 @@ function DensityInterface.logdensityof(
     lp = zero(Tη)
     for j in 1:(glm.out_dim)
         yj = y[j]
-        yj >= 0 || return Tη(-Inf)
+        # Real-valued counts are fine; non-integer or negative ⇒ zero mass.
+        (yj >= 0 && isinteger(yj)) || return Tη(-Inf)
         η = zero(Tη)
         for r in 1:(glm.in_dim)
             η += glm.B[r, j] * control_seq[r]
         end
-        lp += Tη(yj) * η - exp(η) - Tη(logfactorial(yj))
+        lp += Tη(yj) * η - exp(η) - Tη(loggamma(Tη(yj) + one(Tη)))
     end
     return lp
 end

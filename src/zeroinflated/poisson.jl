@@ -37,15 +37,17 @@ PoissonZeroInflated(λ::Real, π::Real) = PoissonZeroInflated(promote(λ, π)...
 DensityInterface.DensityKind(::PoissonZeroInflated) = DensityInterface.HasDensity()
 
 """
-	logdensityof(dist::PoissonZeroInflated, x::Integer)
+	logdensityof(dist::PoissonZeroInflated, x::Real)
 
 Compute the log probability mass of observing `x` under the zero-inflated Poisson distribution.
 
 For x = 0: log(π + (1-π)exp(-λ))
 For x > 0: log(1-π) + x*log(λ) - λ - loggamma(x+1)
+
+Counts stored as floats are accepted; non-integer or negative `x` has zero mass.
 """
-function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Integer)
-    x >= 0 || return oftype(dist.λ, -Inf)
+function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Real)
+    (x >= 0 && isinteger(x)) || return oftype(dist.λ, -Inf)
 
     if x == 0
         # P(X=0) = π + (1-π)exp(-λ)
@@ -54,7 +56,7 @@ function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Integer)
         return logaddexp(log_pi, log_1minus_pi_poisson_0)
     else
         # log P(X=k) = log(1-π) + k*log(λ) - λ - log(k!)
-        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - logfactorial(x)
+        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - loggamma(float(x) + 1)
     end
 end
 

@@ -89,12 +89,14 @@ fit!(dist, obs_seq, weight_seq; max_iter=100, tol=1e-6, fix_nu=false)
 PoissonZeroInflated
 MultivariateT
 MultivariateTDiag
-DensityInterface.logdensityof(::PoissonZeroInflated, ::Integer)
+DensityInterface.logdensityof(::PoissonZeroInflated, ::Real)
 DensityInterface.logdensityof(::MultivariateT, ::AbstractVector)
 DensityInterface.logdensityof(::MultivariateTDiag, ::AbstractVector)
 Base.rand(::Random.AbstractRNG, ::PoissonZeroInflated)
-Base.rand(::Random.AbstractRNG, ::MultivariateT)
-Base.rand(::Random.AbstractRNG, ::MultivariateTDiag)
+Base.rand(::Random.AbstractRNG, ::MultivariateT{T}) where {T<:Real}
+Base.rand(::Random.AbstractRNG, ::MultivariateTDiag{T}) where {T<:Real}
+Random.rand!(::Random.AbstractRNG, ::MultivariateT, ::AbstractVector)
+Random.rand!(::Random.AbstractRNG, ::MultivariateTDiag, ::AbstractVector)
 StatsAPI.fit!(::PoissonZeroInflated, ::AbstractVector, ::AbstractVector)
 StatsAPI.fit!(::Union{MultivariateT,MultivariateTDiag}, ::Any, ::Any)
 ```

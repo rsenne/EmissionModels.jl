@@ -346,6 +346,22 @@ function _mahalanobis²!(dist::MultivariateTDiag, ws, obs_i)
     return mahal²
 end
 
+#= Rank-1 update A += α·x·xᵀ. BLAS.ger! covers the fast Float32/Float64 path;
+   the generic fallback keeps `fit!` working for any Real eltype (the struct
+   accepts any `T<:Real`, e.g. BigFloat, which BLAS would reject). =#
+function _rank1_update!(A::Matrix{T}, α::T, x::Vector{T}) where {T<:LinearAlgebra.BlasReal}
+    return BLAS.ger!(α, x, x, A)
+end
+function _rank1_update!(A::AbstractMatrix, α::Real, x::AbstractVector)
+    for j in eachindex(x)
+        αxj = α * x[j]
+        for i in eachindex(x)
+            A[i, j] += x[i] * αxj
+        end
+    end
+    return A
+end
+
 #= Scale M-step: recompute the scale from residuals against the updated μ,
    weighted by wᵢ·pwᵢ / Σw, then refresh the cached `logdetΣ` (and Cholesky). =#
 function _scatter_mstep!(
@@ -355,12 +371,11 @@ function _scatter_mstep!(
     d = dist.dim
     Σ_acc = ws.scatter
     fill!(Σ_acc, zero(T))
-    # Rank-1 outer-product accumulation via BLAS.ger!.
     for i in eachindex(obs_seq)
         weight_seq[i] > 0 || continue
         ws.diff .= obs_seq[i] .- dist.μ
         wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
-        BLAS.ger!(wp, ws.diff, ws.diff, Σ_acc)
+        _rank1_update!(Σ_acc, wp, ws.diff)
     end
     # Symmetrize numerical noise.
     for j in 1:d, k in 1:(j - 1)
