@@ -201,6 +201,42 @@ function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::Real, x)
     return _emission_to_driver(rng, g, _OneHot(Int(obs), g.out_dim), x)
 end
 
+#= DDM emissions are conditional on the trial's scalar control (stimulus code /
+   signed coherence) and emit a (choice, rt) pair. The driver is the Rosenblatt
+   transform of that pair: a randomized PIT on the boundary choice, then the
+   conditional RT PIT, both uniform on (0,1) under the true model. The defective
+   Wiener CDF comes from the SequentialSamplingModels extension. =#
+function _emission_to_driver(rng::AbstractRNG, d::AbstractDDMEmission, obs, control)
+    ν = _drift(d, control)
+    choice = obs[1]
+    rt = obs[2]
+    T = float(promote_type(typeof(ν), typeof(d.α), typeof(rt)))
+    #= P(choice = 1): the defective CDF at t → ∞. 1e5 s is far past any RT under
+       the standard second-scale parameterization, where absorption is complete
+       within a few seconds. =#
+    p1 = _clamp01(T(_ddm_cdf(ν, d.α, d.z, d.τ, 1, T(1e5))))
+    Fc = T(_ddm_cdf(ν, d.α, d.z, d.τ, choice, rt))   # P(choice, RT ≤ rt)
+
+    if choice == 1
+        lower, upper, p_choice = zero(T), p1, p1
+    else
+        lower, upper, p_choice = p1, one(T), one(T) - p1
+    end
+    ε_choice = lower + rand(rng, T) * (upper - lower)
+    # p_choice ≈ 0 means the observed boundary is essentially never hit under the
+    # model; its conditional RT is uninformative, so fall back to a uniform draw.
+    ε_rt = p_choice > 0 ? _clamp01(Fc / p_choice) : rand(rng, T)
+    return [_clamp01(ε_choice), ε_rt]
+end
+
+#= Controlled emissions reach driver recovery wrapped by HiddenMarkovModels as a
+   `ControlBoundEmission` (the emission bound to its control, from
+   `obs_distributions`). Unwrap to the underlying emission and control so the
+   conditional PIT methods above apply. =#
+function _emission_to_driver(rng::AbstractRNG, ce::ControlBoundEmission, obs, control)
+    return _emission_to_driver(rng, ce.dist, obs, control)
+end
+
 # 3-arg form on a GLM: no covariate to condition on, so point at the 4-arg hook.
 function _emission_to_driver(::AbstractRNG, g::AbstractGLM, obs)
     throw(

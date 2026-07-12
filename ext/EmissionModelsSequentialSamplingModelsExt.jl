@@ -29,4 +29,8 @@ function EmissionModels._ddm_rand(rng, ν::Real, α::Real, z::Real, τ::Real)
     return rand(rng, DDM(ν, α, z, τ))
 end
 
+function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::Real, rt::Real)
+    return SequentialSamplingModels.cdf(DDM(ν, α, z, τ), Int(choice), rt)
+end
+
 end

@@ -38,6 +38,8 @@ abstract type AbstractDDMEmission <: ControlledEmission end
 end
 _ddm_logpdf(ν, α, z, τ, choice, rt) = _require_ssm()
 _ddm_rand(rng, ν, α, z, τ) = _require_ssm()
+# Defective CDF P(choice, RT ≤ rt), used by ACDC driver recovery.
+_ddm_cdf(ν, α, z, τ, choice, rt) = _require_ssm()
 
 """
     StimulusCodedDDM{T<:Real} <: AbstractDDMEmission

@@ -11,9 +11,9 @@ using SequentialSamplingModels   # activates the extension
 
 ## Observations and controls
 
-An observation is a `(choice, rt)` pair — a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand` — with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift.
+An observation is a `(choice, rt)` pair (a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand`), with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift.
 
-Both models are stimulus-coded: the boundaries mark stimulus/choice identity (e.g. right vs. left), not correct vs. error, so correctness is read off afterward from the trial condition. The starting point ``z`` is therefore a side bias rather than an accuracy bias. See Senne et al. (2026) for how this changes parameter interpretation relative to accuracy coding.
+Both models are stimulus-coded: the boundaries mark stimulus/choice identity (e.g. right vs. left), not correct vs. error, so correctness is read off afterward from the trial condition. The starting point ``z`` is therefore a side bias rather than an accuracy bias. The [HSSM stimulus-coding tutorial](https://lnccbrown.github.io/HSSM/tutorials/tutorial_stim_coding/) walks through how this changes parameter interpretation relative to accuracy coding.
 
 ## Provided DDM types
 
@@ -23,7 +23,7 @@ The drift is the gain ``ν`` multiplied by a trial-specific stimulus code:
 
 ``v_{\mathrm{trial}} = s_{\mathrm{trial}} \, ν, \qquad s_{\mathrm{trial}} \in \{-1, +1\}``
 
-The control is the stimulus code ``s`` (`+1` when the upper-boundary stimulus is shown, `-1` for the lower, `0` for no-signal trials). ``ν > 0`` is a magnitude — the stimulus code carries the sign.
+The control is the stimulus code ``s`` (`+1` when the upper-boundary stimulus is shown, `-1` for the lower, `0` for no-signal trials). ``ν > 0`` is a magnitude, so the stimulus code carries the sign.
 
 ```julia
 d = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.3)
@@ -37,7 +37,7 @@ The drift is a (possibly nonlinear) function of signed stimulus coherence:
 
 ``v_{\mathrm{trial}} = k \, \operatorname{sign}(c) \, |c|^{γ}``
 
-The control is the signed coherence ``c`` (sign = stimulus side, magnitude = stimulus strength); ``γ = 1`` recovers the classic linear drift–coherence relationship. ``k > 0`` and ``γ > 0`` — the coherence carries the sign.
+The control is the signed coherence ``c`` (sign = stimulus side, magnitude = stimulus strength); ``γ = 1`` recovers the classic linear drift/coherence relationship. Both ``k > 0`` and ``γ > 0``, so the coherence carries the sign.
 
 ```julia
 d = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.25)
@@ -70,6 +70,15 @@ sim = rand(rng, hmm, stimulus_codes)                  # simulate trials
 hmm_fit, lls = baum_welch(hmm, obs_seq, stimulus_codes; seq_ends=[T])
 ```
 
+## Model selection with ACDC
+
+DDM emissions support [ACDC model selection](acdc.md). Driver recovery inverts each `(choice, rt)` trial through the Rosenblatt transform of its DDM: a randomized PIT on the boundary choice followed by the conditional reaction-time PIT, giving two drivers per trial that are uniform on ``[0,1]`` under a well-specified model.
+
+```julia
+acdc = component_discrepancies(hmm, obs_seq, KSDiscrepancy();
+                               control_seq=stimulus_codes, seq_ends=[T])
+```
+
 ## API Reference
 
 ```@docs
@@ -82,4 +91,4 @@ StatsAPI.fit!(::EmissionModels.AbstractDDMEmission, ::AbstractVector, ::Abstract
 ## References
 
 - Senne, R. A., Xia, H., Duebel, H. F., Do, Q., Kane, G., Fourie, J., Ramirez, S., Scott, B., & DePasquale, B. (2026). Diurnal rhythms of choice: a novel state-dependent drift diffusion model uncovers time-dependent changes in rat decision making. *bioRxiv* [2026.05.25.727672](https://doi.org/10.64898/2026.05.25.727672).
-- Navarro, D. J., & Fuss, I. G. (2009). Fast and accurate calculations for first-passage times in Wiener diffusion models. *Journal of Mathematical Psychology*, 53(4), 222–230.
+- Navarro, D. J., & Fuss, I. G. (2009). Fast and accurate calculations for first-passage times in Wiener diffusion models. *Journal of Mathematical Psychology*, 53(4), 222-230.

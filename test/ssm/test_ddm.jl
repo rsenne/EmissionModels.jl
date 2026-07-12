@@ -1,11 +1,15 @@
 using EmissionModels
+using EmissionModels: stochastic_drivers, component_discrepancies, KSDiscrepancy
 using SequentialSamplingModels
 using SequentialSamplingModels: DDM
 using HiddenMarkovModels: ControlledEmission, ControlledEmissionHMM, baum_welch, forward
 using DensityInterface
 using StatsAPI
+using Statistics: mean, var
 using Random
 using Test
+
+const EM = EmissionModels
 
 @testset "DDM emissions (SequentialSamplingModels extension)" begin
     @testset "construction and validation" begin
@@ -202,5 +206,65 @@ using Test
         _, lls = baum_welch(hmm0, obs_seq, control_seq; seq_ends=[T], max_iterations=8)
         @test all(diff(lls) .>= -1e-6)
         @test last(lls) >= first(lls)
+    end
+
+    @testset "ACDC driver recovery" begin
+        #= Under the true model the Rosenblatt drivers (choice PIT, RT PIT) are
+           independent uniforms on (0,1): mean 1/2, variance 1/12. =#
+        rng = MersenneTwister(7)
+        for d in (
+            StimulusCodedDDM(; ν=1.8, α=1.0, z=0.45, τ=0.2),
+            CoherenceDDM(; k=6.0, γ=0.8, α=1.1, z=0.55, τ=0.25),
+        )
+            controls = d isa StimulusCodedDDM ? (-1.0, 1.0) : (-0.5, -0.2, 0.2, 0.5)
+            N = 40_000
+            E = Matrix{Float64}(undef, 2, N)
+            for i in 1:N
+                c = rand(rng, controls)
+                obs = rand(rng, d, c)
+                E[:, i] = EM._emission_to_driver(rng, d, obs, c)
+            end
+            @test all(0 .< E .< 1)
+            for row in 1:2
+                @test isapprox(mean(view(E, row, :)), 0.5; atol=0.02)
+                @test isapprox(var(view(E, row, :)), 1 / 12; atol=0.01)
+            end
+        end
+    end
+
+    @testset "ACDC on a DDM-HMM (end-to-end)" begin
+        #= Exercises the full stochastic_drivers path on a ControlledEmissionHMM,
+           including the ControlBoundEmission unwrap. Drivers recovered under the
+           generating model should look uniform, i.e. low discrepancy. =#
+        rng = MersenneTwister(11)
+        T = 3000
+        trans = [0.95 0.05; 0.08 0.92]
+        dists = [
+            StimulusCodedDDM(; ν=2.5, α=1.2, z=0.5, τ=0.25),
+            StimulusCodedDDM(; ν=0.8, α=0.8, z=0.5, τ=0.2),
+        ]
+        hmm = ControlledEmissionHMM([0.6, 0.4], trans, dists)
+        control_seq = [rand(rng, (-1.0, 1.0)) for _ in 1:T]
+        obs_seq = rand(rng, hmm, control_seq).obs_seq
+
+        sd = stochastic_drivers(
+            hmm, obs_seq; control_seq=control_seq, seq_ends=(T,), rng=MersenneTwister(3)
+        )
+        @test length(sd.ε_pools) == 2
+        @test all(p -> size(p, 1) == 2, sd.ε_pools)          # (choice, rt) drivers
+        @test all(p -> all(0 .< p .< 1), sd.ε_pools)
+        @test isapprox(sum(sd.usage), 1; atol=1e-8)
+
+        acdc = component_discrepancies(
+            hmm,
+            obs_seq,
+            KSDiscrepancy();
+            control_seq=control_seq,
+            seq_ends=(T,),
+            rng=MersenneTwister(3),
+        )
+        # well-specified emissions ⇒ near-uniform drivers ⇒ small KS discrepancy
+        @test all(isfinite, acdc.component_discrepancies)
+        @test maximum(acdc.component_discrepancies) < 0.1
     end
 end

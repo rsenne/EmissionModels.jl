@@ -7,7 +7,7 @@ using Distributions:
 using DensityInterface
 using DiffResults: DiffResults
 using ForwardDiff: ForwardDiff
-using HiddenMarkovModels: ControlledEmission
+using HiddenMarkovModels: ControlledEmission, ControlBoundEmission
 using HiddenMarkovModels: AbstractHMM, obs_distributions, forward_backward
 using LinearAlgebra
 using LogExpFunctions: logaddexp, logsumexp, log1pexp, logistic, logit
