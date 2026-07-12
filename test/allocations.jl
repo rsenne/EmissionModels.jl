@@ -209,6 +209,32 @@ s)
         @test (@allocated fit!(zip2, y, w)) ≤ 1_000
     end
 
+    @testset "MultinomialGLM" begin
+        x = [1.0, 2.0]
+        # p = 2 inputs, K = 3 categories (B is p × K-1), 6 trials per draw.
+        mn = MultinomialGLM([0.5 -1.0; 0.2 0.3], 6)
+        yv = [3, 2, 1]
+
+        bench_logd(mn, yv, x, 1)
+        @test (@allocated bench_logd(mn, yv, x, REPS)) <= ALLOC_SLOP
+
+        # rand! into a pre-allocated buffer — zero alloc.
+        out = zeros(Int, 3)
+        bench_rand!_i(rng, mn, out, x, 1)
+        @test (@allocated bench_rand!_i(rng, mn, out, x, REPS)) <= ALLOC_SLOP
+
+        #= fit!: Newton over the flattened (K-1)·p coefficients — Optim solver
+           state is O(((K-1)p)²), independent of n. =#
+        n = 500
+        X = hcat(ones(n), randn(rng, n))
+        w = ones(n)
+        ymn = [rand(rng, mn; control_seq=view(X, i, :)) for i in 1:n]
+        gmn = MultinomialGLM(zeros(2, 2), 6)
+        fit!(gmn, ymn, w; control_seq=X)
+        gmn = MultinomialGLM(zeros(2, 2), 6)
+        @test (@allocated fit!(gmn, ymn, w; control_seq=X)) ≤ 40_000
+    end
+
     @testset "MultivariateT (full Σ)" begin
         d = 2
         mvt = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)

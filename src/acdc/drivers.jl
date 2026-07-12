@@ -153,6 +153,54 @@ function _emission_to_driver(rng::AbstractRNG, g::MvPoissonGLM, obs::AbstractVec
     return [_emission_to_driver(rng, Poisson(exp(η[j])), obs[j])[1] for j in eachindex(η)]
 end
 
+#= MultinomialGLM: the count coordinates are dependent through the shared total,
+   so stacked per-coordinate PITs are wrong. Use the discrete Rosenblatt
+   transform through the sequential conditional binomials
+       y_j | y_1..y_{j-1} ~ Binomial(n − Σ_{i<j} yᵢ, p_j / (1 − Σ_{i<j} pᵢ)),
+   applying the randomized PIT to each conditional (mirrors the sampler in
+   `rand!`). The K-th coordinate is determined by the total, so its conditional
+   is degenerate and carries no information: the driver has K−1 dimensions. =#
+function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::AbstractVector, x)
+    K = g.out_dim
+    T = float(promote_type(eltype(g.B), eltype(x)))
+
+    lse = zero(T)   # log Σₗ exp(ηₗ), reference category contributes exp(0)
+    for j in 1:(K - 1)
+        η = zero(T)
+        for r in 1:(g.in_dim)
+            η += g.B[r, j] * x[r]
+        end
+        lse = logaddexp(lse, η)
+    end
+
+    n_rem = 0
+    for yj in obs
+        n_rem += Int(yj)
+    end
+
+    ε = Vector{T}(undef, K - 1)
+    p_rem = one(T)
+    for j in 1:(K - 1)
+        η = zero(T)
+        for r in 1:(g.in_dim)
+            η += g.B[r, j] * x[r]
+        end
+        pj = exp(η - lse)
+        # p_rem can undershoot 0 by rounding once most mass is spent.
+        pc = p_rem > 0 ? clamp(pj / p_rem, zero(T), one(T)) : one(T)
+        yj = Int(obs[j])
+        ε[j] = _emission_to_driver(rng, Binomial(n_rem, Float64(pc)), yj)[1]
+        n_rem -= yj
+        p_rem -= pj
+    end
+    return ε
+end
+
+# Label form: a single-trial choice y ∈ 1:K is its one-hot count vector.
+function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::Real, x)
+    return _emission_to_driver(rng, g, _OneHot(Int(obs), g.out_dim), x)
+end
+
 # 3-arg form on a GLM: no covariate to condition on, so point at the 4-arg hook.
 function _emission_to_driver(::AbstractRNG, g::AbstractGLM, obs)
     throw(

@@ -1,6 +1,6 @@
 module EmissionModels
 
-using Distributions: Normal, Bernoulli, Poisson, Chisq, TDist, MvNormal
+using Distributions: Normal, Bernoulli, Binomial, Poisson, Chisq, TDist, MvNormal
 using Distributions: cdf, quantile
 using Distributions:
     ContinuousUnivariateDistribution, DiscreteUnivariateDistribution, AbstractMvNormal
@@ -29,7 +29,7 @@ include("acdc/hmm.jl")
 export rand, logdensityof, fit!
 export PoissonZeroInflated
 export MultivariateT, MultivariateTDiag
-export GaussianGLM, BernoulliGLM, PoissonGLM
+export GaussianGLM, BernoulliGLM, PoissonGLM, MultinomialGLM
 export MvGaussianGLM, MvBernoulliGLM, MvPoissonGLM
 export AbstractPrior, NoPrior, RidgePrior
 export neglogprior, neglogprior_grad!, neglogprior_hess!

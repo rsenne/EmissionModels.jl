@@ -20,6 +20,7 @@ using JuliaFormatter
         include("glm/gaussian.jl")
         include("glm/test_bernoulli_poisson.jl")
         include("glm/test_promotion_and_types.jl")
+        include("glm/test_multinomial.jl")
         include("glm/test_controlled_hmm.jl")
     end
     @testset "Zero-inflated models" begin
