@@ -148,6 +148,25 @@ end
     end
 end
 
+@testset "logdensityof accepts Real-stored counts" begin
+    x = [1.0, 2.0]
+    glm_b = BernoulliGLM([0.5, -1.0])
+    glm_p = PoissonGLM([0.5, -1.0])
+    glm_mp = MvPoissonGLM([0.5 -1.0; 0.2 0.0])
+
+    #= Obs sequences frequently arrive as Float64 even for count data; an
+       integer-valued float must score identically to the Int, and values with
+       zero mass (non-integer or negative) must return -Inf, not throw. =#
+    @test logdensityof(glm_b, 1.0; control_seq=x) == logdensityof(glm_b, 1; control_seq=x)
+    @test logdensityof(glm_b, 0.5; control_seq=x) == -Inf
+    @test logdensityof(glm_p, 3.0; control_seq=x) == logdensityof(glm_p, 3; control_seq=x)
+    @test logdensityof(glm_p, 2.5; control_seq=x) == -Inf
+    @test logdensityof(glm_p, -1.0; control_seq=x) == -Inf
+    @test logdensityof(glm_mp, [2.0, 0.0]; control_seq=x) ==
+        logdensityof(glm_mp, [2, 0]; control_seq=x)
+    @test logdensityof(glm_mp, [2.0, 0.5]; control_seq=x) == -Inf
+end
+
 @testset "fit! errors on rank-deficient design" begin
     # X column 2 is constant 0, so XᵀWX is rank-deficient.
     X_sing = ones(5, 2)

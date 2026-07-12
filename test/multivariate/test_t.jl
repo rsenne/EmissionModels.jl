@@ -576,3 +576,19 @@ end
     Sd = reduce(hcat, (copy(rand!(rng, distd, out)) for _ in 1:20_000))
     @test vec(mean(Sd; dims=2)) ≈ distd.μ atol = 0.1
 end
+
+@testset "fit! works for non-BLAS eltypes (BigFloat)" begin
+    #= The struct accepts any T<:Real, but the scatter M-step used BLAS.ger!,
+       which only exists for Float32/Float64, so fit! crashed for e.g.
+       BigFloat. The generic rank-1 fallback must fit end to end. ν stays
+       fixed: the ν root-find needs digamma/trigamma, whose BigFloat support
+       belongs to SpecialFunctions, not this code path. =#
+    rng = Random.MersenneTwister(404)
+    obs = [BigFloat.(randn(rng, 2) .+ [1.0, -1.0]) for _ in 1:200]
+    w = ones(200)
+    dist = MultivariateT(BigFloat[0.0, 0.0], BigFloat[1.0 0.0; 0.0 1.0], BigFloat(5.0))
+    fit!(dist, obs, w; max_iter=5, fix_nu=true)
+    @test all(isfinite, dist.μ)
+    @test isapprox(Float64.(dist.μ), [1.0, -1.0]; atol=0.3)
+    @test all(isfinite, dist.Σ)
+end

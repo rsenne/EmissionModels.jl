@@ -298,3 +298,24 @@ end
     # Positive σ2 still constructs fine, including through the promoting path.
     @test GaussianGLM([1, 2], 1) isa GaussianGLM{Float64,NoPrior}
 end
+
+@testset "GaussianGLM fit! keeps σ2 positive on degenerate data" begin
+    #= Noiseless data (y = 2x exactly, n = p is enough) previously drove
+       σ2 to exactly 0, breaking the σ2 > 0 invariant and making every later
+       logdensityof NaN. The fit must land on the variance floor instead. =#
+    glm = GaussianGLM([0.0], 1.0)
+    X = reshape([1.0, 2.0, 3.0], 3, 1)
+    y = [2.0, 4.0, 6.0]
+    fit!(glm, y, ones(3); control_seq=X)
+    @test glm.β[1] ≈ 2.0
+    @test glm.σ2 ≈ sqrt(eps(Float64))
+    @test isfinite(logdensityof(glm, 2.0; control_seq=[1.0]))
+
+    # All-zero weights cannot produce a fit; error instead of NaN parameters.
+    glm0 = GaussianGLM([0.0], 1.0, RidgePrior(1.0))
+    @test_throws ArgumentError fit!(glm0, y, zeros(3); control_seq=X)
+
+    mv0 = MvGaussianGLM(zeros(1, 2), Matrix(1.0I, 2, 2), RidgePrior(1.0))
+    mvobs = [randn(Random.MersenneTwister(1), 2) for _ in 1:3]
+    @test_throws ArgumentError fit!(mv0, mvobs, zeros(3); control_seq=X)
+end

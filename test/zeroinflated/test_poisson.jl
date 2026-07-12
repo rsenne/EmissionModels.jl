@@ -221,3 +221,13 @@ end
     # The docstring form without an explicit rng.
     @test rand(dist, 5) isa Vector{Int}
 end
+
+@testset "logdensityof accepts Real-stored counts" begin
+    dist = PoissonZeroInflated(3.0, 0.3)
+    # Count data often arrives as Float64; integer-valued floats must score
+    # identically, and zero-mass values must give -Inf rather than throw.
+    @test logdensityof(dist, 4.0) == logdensityof(dist, 4)
+    @test logdensityof(dist, 0.0) == logdensityof(dist, 0)
+    @test logdensityof(dist, 2.5) == -Inf
+    @test logdensityof(dist, -1.0) == -Inf
+end
