@@ -201,6 +201,35 @@ function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::Real, x)
     return _emission_to_driver(rng, g, _OneHot(Int(obs), g.out_dim), x)
 end
 
+#= DDM emission (control -> drift): Rosenblatt transform of the (choice, rt) pair
+   into a randomized PIT on the boundary choice and the conditional RT PIT, both
+   uniform on (0,1) under the true model. Uses the extension's defective CDF. =#
+function _emission_to_driver(rng::AbstractRNG, d::AbstractDDMEmission, obs, control)
+    ν = _drift(d, control)
+    choice = obs[1]
+    rt = obs[2]
+    T = float(promote_type(typeof(ν), typeof(d.α), typeof(rt)))
+    # P(choice = 1), the t → ∞ limit of the defective CDF, in closed form.
+    p1 = _clamp01(T(_ddm_prob_upper(ν, d.α, d.z)))
+    Fc = T(_ddm_cdf(ν, d.α, d.z, d.τ, choice, rt))   # P(choice, RT ≤ rt)
+
+    if choice == 1
+        lower, upper, p_choice = zero(T), p1, p1
+    else
+        lower, upper, p_choice = p1, one(T), one(T) - p1
+    end
+    ε_choice = lower + rand(rng, T) * (upper - lower)
+    # A never-hit boundary has an uninformative conditional RT: draw uniformly.
+    ε_rt = p_choice > 0 ? _clamp01(Fc / p_choice) : rand(rng, T)
+    return [_clamp01(ε_choice), ε_rt]
+end
+
+#= `obs_distributions` on a ControlledEmissionHMM yields ControlBoundEmissions;
+   unwrap to the emission and its control for the conditional PIT methods. =#
+function _emission_to_driver(rng::AbstractRNG, ce::ControlBoundEmission, obs, control)
+    return _emission_to_driver(rng, ce.dist, obs, control)
+end
+
 # 3-arg form on a GLM: no covariate to condition on, so point at the 4-arg hook.
 function _emission_to_driver(::AbstractRNG, g::AbstractGLM, obs)
     throw(

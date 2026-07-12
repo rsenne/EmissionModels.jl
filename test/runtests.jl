@@ -31,6 +31,10 @@ using JuliaFormatter
         include("multivariate/test_t.jl")
     end
 
+    @testset "DDM emissions (SequentialSamplingModels extension)" begin
+        include("ssm/test_ddm.jl")
+    end
+
     @testset "ACDC model selection" begin
         include("acdc/test_acdc.jl")
     end

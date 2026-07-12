@@ -5,7 +5,9 @@ authors = ["Ryan Senne"]
 
 [deps]
 DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
+DiffResults = "163ba53b-c6d8-5494-b064-1a9d43ac40c5"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HiddenMarkovModels = "84ca31d5-effc-45e0-bfda-5a68cd981f47"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
@@ -16,15 +18,24 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
+[weakdeps]
+SequentialSamplingModels = "0e71a2a6-2b30-4447-8742-d083a85e82d1"
+
+[extensions]
+EmissionModelsSequentialSamplingModelsExt = "SequentialSamplingModels"
+
 [compat]
 DensityInterface = "0.4.0"
+DiffResults = "1.1.0"
 Distributions = "0.25.122"
+ForwardDiff = "1.4.1"
 HiddenMarkovModels = "0.7.1"
 LinearAlgebra = "1"
 LogExpFunctions = "0.3.29, 1"
 NearestNeighbors = "0.4.27"
 Optim = "2"
 Random = "1"
+SequentialSamplingModels = "0.13"
 SpecialFunctions = "2.6.1"
 Statistics = "1"
 StatsAPI = "1.8.0"
