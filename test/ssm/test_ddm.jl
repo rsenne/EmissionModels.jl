@@ -71,6 +71,50 @@ const EM = EmissionModels
         @test logdensityof(d, (3, 0.6), 1.0) == -Inf   # invalid choice
     end
 
+    @testset "_ddm_prob_upper closed form" begin
+        # matches the t → ∞ limit of the defective CDF computed by SSM
+        for (ν, α, z) in
+            ((1.5, 1.0, 0.4), (-2.0, 0.8, 0.6), (0.3, 2.0, 0.5), (-0.1, 1.2, 0.3))
+            @test EM._ddm_prob_upper(ν, α, z) ≈
+                SequentialSamplingModels.cdf(DDM(ν, α, z, 0.0), 1, 1e5) atol = 1e-8
+        end
+        # zero drift: P(upper) is the relative start point
+        @test EM._ddm_prob_upper(0.0, 1.0, 0.3) == 0.3
+        # extreme drifts saturate without overflow (a naive expm1 ratio NaNs)
+        @test EM._ddm_prob_upper(500.0, 2.0, 0.5) ≈ 1.0
+        @test EM._ddm_prob_upper(-500.0, 2.0, 0.5) ≈ 0.0 atol = 1e-12
+        @test EM._ddm_prob_upper(1.5f0, 1.0f0, 0.4f0) isa Float32
+    end
+
+    @testset "_ddm_cdf guards" begin
+        ν, α, z, τ = 1.5, 1.0, 0.4, 0.2
+        # valid calls defer to SSM, whatever Real type carries the choice
+        ref = SequentialSamplingModels.cdf(DDM(ν, α, z, τ), 1, 0.6)
+        @test EM._ddm_cdf(ν, α, z, τ, 1, 0.6) == clamp(ref, 0.0, 1.0)
+        @test EM._ddm_cdf(ν, α, z, τ, 1.0, 0.6) == EM._ddm_cdf(ν, α, z, τ, 1, 0.6)
+        # cases SSM's cdf throws on carry zero mass instead
+        @test EM._ddm_cdf(ν, α, z, τ, 3, 0.6) == 0.0      # invalid choice
+        @test EM._ddm_cdf(ν, α, z, τ, 1.5, 0.6) == 0.0    # non-integral choice
+        @test EM._ddm_cdf(ν, α, z, τ, 1, 0.1) == 0.0      # rt < τ
+        @test EM._ddm_cdf(ν, α, z, τ, 1, τ) == 0.0        # rt == τ
+        # defective CDF: monotone in rt, saturating at the boundary-hit mass
+        Fs = [EM._ddm_cdf(ν, α, z, τ, 1, rt) for rt in (0.25, 0.4, 0.8, 2.0, 10.0)]
+        @test issorted(Fs)
+        @test all(0 .≤ Fs .≤ 1)
+        @test last(Fs) ≈ EM._ddm_prob_upper(ν, α, z) atol = 1e-6
+    end
+
+    @testset "type stability" begin
+        rng = MersenneTwister(0)
+        d = StimulusCodedDDM(; ν=1.5, α=1.0, z=0.4, τ=0.2)
+        c = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.25)
+        @test @inferred(logdensityof(d, (1, 0.6), 1.0)) isa Float64
+        @test @inferred(logdensityof(c, (2, 0.7), -0.256)) isa Float64
+        @test @inferred(EM._ddm_cdf(1.5, 1.0, 0.4, 0.2, 1, 0.6)) isa Float64
+        @test @inferred(EM._ddm_prob_upper(1.5, 1.0, 0.4)) isa Float64
+        @test @inferred(EM._emission_to_driver(rng, d, (1, 0.6), 1.0)) isa Vector{Float64}
+    end
+
     @testset "rand" begin
         rng = MersenneTwister(0)
         d = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.3)
@@ -175,6 +219,33 @@ const EM = EmissionModels
         @test_throws DimensionMismatch fit!(
             StimulusCodedDDM(), obs, ones(n); control_seq=controls[1:(n - 1)]
         )
+
+        # solver kwargs are accepted and a capped run stays well-defined
+        d_cap = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=0.1)
+        fit!(d_cap, obs, ones(n); control_seq=controls, max_iter=2, gtol=1e-3)
+        @test all(isfinite, (d_cap.ν, d_cap.α, d_cap.z, d_cap.τ))
+    end
+
+    @testset "Float32 parameters" begin
+        rng = MersenneTwister(5)
+        truth = StimulusCodedDDM(; ν=2.0f0, α=1.0f0, z=0.5f0, τ=0.2f0)
+        @test truth isa StimulusCodedDDM{Float32}
+
+        n = 300
+        controls = [rand(rng, (-1.0f0, 1.0f0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+
+        d = StimulusCodedDDM(; ν=1.0f0, α=0.8f0, z=0.5f0, τ=0.1f0)
+        ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
+        ll0 = ll(d)
+        #= SSM's sampler returns Float64 rts, so this exercises the mixed
+           Float32-emission / Float64-observation path, which must promote
+           rather than silently hit -Inf through SSM's series internals. =#
+        @test isfinite(ll0)
+        fit!(d, obs, ones(Float32, n); control_seq=controls, gtol=1e-4)
+        @test typeof((d.ν, d.α, d.z, d.τ)) == NTuple{4,Float32}
+        @test all(isfinite, (d.ν, d.α, d.z, d.τ))
+        @test ll(d) > ll0
     end
 
     @testset "DDM-HMM: sample, forward, baum_welch" begin
@@ -266,5 +337,19 @@ const EM = EmissionModels
         # well-specified emissions ⇒ near-uniform drivers ⇒ small KS discrepancy
         @test all(isfinite, acdc.component_discrepancies)
         @test maximum(acdc.component_discrepancies) < 0.1
+    end
+
+    @testset "extension fallback hooks" begin
+        #= The src fallbacks hat a user without SequentialSamplingModels
+           loaded hits for any argument types stay reachable  =#
+        @test_throws "SequentialSamplingModels" EM._ddm_logpdf(
+            nothing, nothing, nothing, nothing, nothing, nothing
+        )
+        @test_throws "SequentialSamplingModels" EM._ddm_rand(
+            nothing, nothing, nothing, nothing, nothing
+        )
+        @test_throws "SequentialSamplingModels" EM._ddm_cdf(
+            nothing, nothing, nothing, nothing, nothing, nothing
+        )
     end
 end

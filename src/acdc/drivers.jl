@@ -209,8 +209,8 @@ function _emission_to_driver(rng::AbstractRNG, d::AbstractDDMEmission, obs, cont
     choice = obs[1]
     rt = obs[2]
     T = float(promote_type(typeof(ν), typeof(d.α), typeof(rt)))
-    # P(choice = 1) is the defective CDF at t → ∞; 1e5 s is past any RT.
-    p1 = _clamp01(T(_ddm_cdf(ν, d.α, d.z, d.τ, 1, T(1e5))))
+    # P(choice = 1), the t → ∞ limit of the defective CDF, in closed form.
+    p1 = _clamp01(T(_ddm_prob_upper(ν, d.α, d.z)))
     Fc = T(_ddm_cdf(ν, d.α, d.z, d.τ, choice, rt))   # P(choice, RT ≤ rt)
 
     if choice == 1

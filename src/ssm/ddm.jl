@@ -40,6 +40,24 @@ _ddm_rand(rng, ν, α, z, τ) = _require_ssm()
 # Defective CDF P(choice, RT ≤ rt), used by ACDC driver recovery.
 _ddm_cdf(ν, α, z, τ, choice, rt) = _require_ssm()
 
+#= Probability of absorption at the upper boundary (choice = 1), the t → ∞
+   limit of the defective CDF. Standard Wiener first-passage result for unit
+   diffusion, boundaries at 0 and α, start z·α:
+
+   P(upper) = (1 - e^{-2ναz}) / (1 - e^{-2να})
+
+   Written with expm1 for accuracy near ν = 0 and mirrored through
+   P(upper; ν, z) = 1 - P(upper; -ν, 1-z) for ν < 0 so the exponentials never
+   overflow. Pure closed form, so it needs no extension hook. =#
+function _ddm_prob_upper(ν::Real, α::Real, z::Real)
+    T = float(promote_type(typeof(ν), typeof(α), typeof(z)))
+    iszero(ν) && return T(z)
+    if ν > 0
+        return T(expm1(-2 * ν * α * z) / expm1(-2 * ν * α))
+    end
+    return T(1 - expm1(2 * ν * α * (1 - z)) / expm1(2 * ν * α))
+end
+
 """
     StimulusCodedDDM{T<:Real} <: AbstractDDMEmission
 

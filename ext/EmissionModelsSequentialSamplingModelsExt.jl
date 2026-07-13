@@ -13,9 +13,13 @@ function EmissionModels._ddm_logpdf(
     # Cases SequentialSamplingModels.pdf rejects; here they have zero density.
     (choice == 1 || choice == 2) || return T(-Inf)
     rt > τ || return T(-Inf)
-    # The series can overflow at extreme parameters; treat those as zero density.
+    #= Promote parameters and rt together before handing them to SSM: its
+       series internals require one homogeneous element type, and mixed
+       precisions (e.g. Float32 emission, Float64 rt) would MethodError.
+       The series can also overflow at extreme parameters; treat both as
+       zero density. =#
     p = try
-        SequentialSamplingModels.pdf(DDM(ν, α, z, τ), Int(choice), rt)
+        SequentialSamplingModels.pdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
     catch
         return T(-Inf)
     end
@@ -27,7 +31,18 @@ function EmissionModels._ddm_rand(rng, ν::Real, α::Real, z::Real, τ::Real)
 end
 
 function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::Real, rt::Real)
-    return SequentialSamplingModels.cdf(DDM(ν, α, z, τ), Int(choice), rt)
+    T = float(promote_type(typeof(ν), typeof(α), typeof(z), typeof(τ), typeof(rt)))
+    # Cases SequentialSamplingModels.cdf rejects; here they carry zero mass.
+    (choice == 1 || choice == 2) || return zero(T)
+    rt > τ || return zero(T)
+    # Same homogeneous-type promotion and overflow guard as `_ddm_logpdf`.
+    F = try
+        SequentialSamplingModels.cdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
+    catch
+        return zero(T)
+    end
+    # Series truncation can stray slightly outside [0, 1].
+    return isfinite(F) ? clamp(T(F), zero(T), one(T)) : zero(T)
 end
 
 end
