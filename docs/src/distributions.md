@@ -33,7 +33,7 @@ fit!(dist, [1, 0, 3, 0], [1.0, 1.0, 1.0, 1.0])
 
 ## Multivariate continuous
 
-### `MultivariateT(μ, Σ, ν)`
+### `MvT(μ, Σ, ν)`
 
 Full-covariance multivariate Student's t-distribution.
 
@@ -48,12 +48,12 @@ Full-covariance multivariate Student's t-distribution.
 ```julia
 μ = [0.0, 1.0]
 Σ = [1.0 0.5; 0.5 2.0]
-dist = MultivariateT(μ, Σ, 5.0)
+dist = MvT(μ, Σ, 5.0)
 x = rand(dist)
 lp = logdensityof(dist, x)
 ```
 
-### `MultivariateTDiag(μ, σ², ν)`
+### `MvTDiag(μ, σ², ν)`
 
 Diagonal-covariance multivariate Student's t-distribution (more efficient for high dimensions).
 
@@ -66,7 +66,7 @@ Diagonal-covariance multivariate Student's t-distribution (more efficient for hi
 **Example:**
 
 ```julia
-dist = MultivariateTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
+dist = MvTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
 ```
 
 ## Parameter estimation (`fit!`)
@@ -87,16 +87,16 @@ fit!(dist, obs_seq, weight_seq; max_iter=100, tol=1e-6, fix_nu=false)
 
 ```@docs
 PoissonZeroInflated
-MultivariateT
-MultivariateTDiag
+MvT
+MvTDiag
 DensityInterface.logdensityof(::PoissonZeroInflated, ::Real)
-DensityInterface.logdensityof(::MultivariateT, ::AbstractVector)
-DensityInterface.logdensityof(::MultivariateTDiag, ::AbstractVector)
+DensityInterface.logdensityof(::MvT, ::AbstractVector)
+DensityInterface.logdensityof(::MvTDiag, ::AbstractVector)
 Base.rand(::Random.AbstractRNG, ::PoissonZeroInflated)
-Base.rand(::Random.AbstractRNG, ::MultivariateT{T}) where {T<:Real}
-Base.rand(::Random.AbstractRNG, ::MultivariateTDiag{T}) where {T<:Real}
-Random.rand!(::Random.AbstractRNG, ::MultivariateT, ::AbstractVector)
-Random.rand!(::Random.AbstractRNG, ::MultivariateTDiag, ::AbstractVector)
+Base.rand(::Random.AbstractRNG, ::MvT{T}) where {T<:Real}
+Base.rand(::Random.AbstractRNG, ::MvTDiag{T}) where {T<:Real}
+Random.rand!(::Random.AbstractRNG, ::MvT, ::AbstractVector)
+Random.rand!(::Random.AbstractRNG, ::MvTDiag, ::AbstractVector)
 StatsAPI.fit!(::PoissonZeroInflated, ::AbstractVector, ::AbstractVector)
-StatsAPI.fit!(::Union{MultivariateT,MultivariateTDiag}, ::Any, ::Any)
+StatsAPI.fit!(::Union{MvT,MvTDiag}, ::Any, ::Any)
 ```

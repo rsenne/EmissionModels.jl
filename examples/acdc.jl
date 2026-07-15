@@ -38,13 +38,15 @@ hmm_true = HMM(
 _, obs_seq = rand(rng, hmm_true, 3000);
 
 #=
-[`stochastic_drivers`](@ref) inverts each emission through the PIT and pools
-the drivers by state, assigning each observation according to its posterior
-state membership. There is one pool of size $D \times N_k$ per state (the
-observations here are scalar, so $D = 1$).
+The internal helper `EmissionModels.stochastic_drivers` inverts each emission
+through the PIT and pools the drivers by state, assigning each observation
+according to its posterior state membership. There is one pool of size
+$D \times N_k$ per state (the observations here are scalar, so $D = 1$). In
+practice you rarely call it directly — [`component_discrepancies`](@ref) wraps
+it — but it makes the method concrete.
 =#
 
-sd = stochastic_drivers(hmm_true, obs_seq; rng=rng)
+sd = EmissionModels.stochastic_drivers(hmm_true, obs_seq; rng=rng)
 size.(sd.ε_pools)
 
 #=
@@ -88,11 +90,12 @@ four-state model loses to the three-state one).
 K_selected = acdc_select(results, 0.1)
 
 #=
-[`get_critical_rho_values`](@ref) lists the cutoffs at which the selection
-changes, which is useful to check how sensitive the choice is to $\rho$.
+The internal helper `EmissionModels.get_critical_rho_values` lists the cutoffs
+at which the selection changes, which is useful to check how sensitive the
+choice is to $\rho$.
 =#
 
-get_critical_rho_values(results)
+EmissionModels.get_critical_rho_values(results)
 
 # ## Detecting a misspecified emission
 

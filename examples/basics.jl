@@ -127,7 +127,7 @@ hcat(
 )
 
 #=
-Multivariate emissions like [`MultivariateT`](@ref) work in exactly the same
+Multivariate emissions like [`MvT`](@ref) work in exactly the same
 way, and the [GLM emissions](glm.md) additionally condition on a control
 vector.
 =#

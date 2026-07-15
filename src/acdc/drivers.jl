@@ -11,7 +11,7 @@
      through Φ.
    - PoissonZeroInflated: randomized PIT against the ZIP CDF
      F(k) = π + (1-π)·F_Poisson(k).
-   - MultivariateT / MultivariateTDiag: the conditional-t Rosenblatt; whiten
+   - MvT / MvTDiag: the conditional-t Rosenblatt; whiten
      the residual to a standardized spherical t, then push each coordinate
      through its conditional Student-t CDF. (A Gaussian-style whiten-then-Φ is
      wrong here: whitened t-coordinates are uncorrelated but not independent.)
@@ -84,12 +84,12 @@ end
    independent and pushing each through Φ (as for a Gaussian) would be wrong. The
    correct map sends each whitened coordinate through its conditional Student-t
    CDF, which has ν+(j-1) degrees of freedom and scale √((ν+Σ_{i<j} zᵢ²)/(ν+j-1)). =#
-function _emission_to_driver(::AbstractRNG, d::MultivariateT, obs::AbstractVector)
+function _emission_to_driver(::AbstractRNG, d::MvT, obs::AbstractVector)
     z = d.Σ_chol.L \ (collect(float.(obs)) .- d.μ)
     return _conditional_t_drivers(z, d.ν)
 end
 
-function _emission_to_driver(::AbstractRNG, d::MultivariateTDiag, obs::AbstractVector)
+function _emission_to_driver(::AbstractRNG, d::MvTDiag, obs::AbstractVector)
     z = (collect(float.(obs)) .- d.μ) ./ sqrt.(d.σ²)
     return _conditional_t_drivers(z, d.ν)
 end
@@ -249,7 +249,7 @@ function _emission_to_driver(::AbstractRNG, d, obs)
             "ACDC has no `_emission_to_driver` method for emission of type " *
             "$(typeof(d)). Supported out of the box: continuous/discrete " *
             "univariate `Distributions`, `MvNormal`, `PoissonZeroInflated`, and " *
-            "`MultivariateT`/`MultivariateTDiag`. Define " *
+            "`MvT`/`MvTDiag`. Define " *
             "`EmissionModels._emission_to_driver(rng, dist, obs)` returning a " *
             "vector of drivers in [0,1] to add support.",
         ),
