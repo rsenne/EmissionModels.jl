@@ -11,7 +11,7 @@ concrete type implements the `ControlledEmission` positional interface:
 
 - `DensityInterface.logdensityof(d, obs, control)`: log density of one trial
 - `Random.rand(rng, d, control)`: sample one trial as `(; choice, rt)`
-- `StatsAPI.fit!(d, obs_seq, control_seq, weights)`: weighted in-place update
+- `StatsAPI.fit!(d, obs_seq, control_seq, weight_seq)`: weighted in-place update
 
 Observations are `(choice, rt)` pairs — any positionally indexable pair such
 as a `Tuple` or the `(; choice, rt)` `NamedTuple` returned by `rand` — with
@@ -90,7 +90,7 @@ using EmissionModels, SequentialSamplingModels
 d = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.3)
 obs = rand(rng, d, -1)                # (; choice, rt) for a lower stimulus
 logdensityof(d, obs, -1)
-fit!(d, obs_seq, weights; control_seq=stimulus_codes)
+fit!(d, obs_seq, weight_seq; control_seq=stimulus_codes)
 ```
 """
 mutable struct StimulusCodedDDM{T<:Real} <: AbstractDDMEmission
@@ -143,7 +143,7 @@ using EmissionModels, SequentialSamplingModels
 d = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.25)
 obs = rand(rng, d, 0.256)             # (; choice, rt) at coherence 0.256
 logdensityof(d, obs, 0.256)
-fit!(d, obs_seq, weights; control_seq=coherences)
+fit!(d, obs_seq, weight_seq; control_seq=coherences)
 ```
 """
 mutable struct CoherenceDDM{T<:Real} <: AbstractDDMEmission
@@ -368,8 +368,8 @@ function StatsAPI.fit!(
     d::AbstractDDMEmission,
     obs_seq::AbstractVector,
     control_seq::AbstractVector{<:Real},
-    weights::AbstractVector{<:Real};
+    weight_seq::AbstractVector{<:Real};
     kwargs...,
 )
-    return fit!(d, obs_seq, weights; control_seq=control_seq, kwargs...)
+    return fit!(d, obs_seq, weight_seq; control_seq=control_seq, kwargs...)
 end

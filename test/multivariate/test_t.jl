@@ -12,36 +12,36 @@ import StatsAPI: fit!
 
 include("../hmm_utils.jl")
 
-@testset "MultivariateT" begin
+@testset "MvT" begin
     @testset "Constructor" begin
         # Valid construction
         μ = [0.0, 0.0]
         Σ = [1.0 0.5; 0.5 1.0]
         ν = 5.0
-        dist = MultivariateT(μ, Σ, ν)
+        dist = MvT(μ, Σ, ν)
         @test dist.μ == μ
         @test dist.Σ == Σ
         @test dist.ν == ν
         @test dist.dim == 2
 
         # Type promotion
-        dist2 = MultivariateT([0, 0], [1.0 0.0; 0.0 1.0], 5)
+        dist2 = MvT([0, 0], [1.0 0.0; 0.0 1.0], 5)
         @test eltype(dist2.μ) == Float64
         @test eltype(dist2.Σ) == Float64
         @test dist2.ν isa Float64
 
         # Invalid parameters
-        @test_throws ArgumentError MultivariateT([0.0, 0.0], [1.0 0.5; 0.5 1.0], -1.0)  # negative ν
-        @test_throws ArgumentError MultivariateT(Float64[], [1.0;;], 5.0)  # empty μ
-        @test_throws DimensionMismatch MultivariateT([0.0, 0.0], [1.0;;], 5.0)  # wrong Σ size
-        @test_throws ArgumentError MultivariateT([0.0, 0.0], [1.0 0.5; 0.5 -1.0], 5.0)  # non-PD Σ
+        @test_throws ArgumentError MvT([0.0, 0.0], [1.0 0.5; 0.5 1.0], -1.0)  # negative ν
+        @test_throws ArgumentError MvT(Float64[], [1.0;;], 5.0)  # empty μ
+        @test_throws DimensionMismatch MvT([0.0, 0.0], [1.0;;], 5.0)  # wrong Σ size
+        @test_throws ArgumentError MvT([0.0, 0.0], [1.0 0.5; 0.5 -1.0], 5.0)  # non-PD Σ
     end
 
     @testset "DensityInterface" begin
         μ = [1.0, 2.0]
         Σ = [2.0 0.5; 0.5 1.0]
         ν = 5.0
-        dist = MultivariateT(μ, Σ, ν)
+        dist = MvT(μ, Σ, ν)
 
         @test DensityKind(dist) == HasDensity()
 
@@ -67,7 +67,7 @@ include("../hmm_utils.jl")
         # The density is symmetric when the scale is.
         μ_sym = [0.0, 0.0]
         Σ_sym = [1.0 0.0; 0.0 1.0]
-        dist_sym = MultivariateT(μ_sym, Σ_sym, ν)
+        dist_sym = MvT(μ_sym, Σ_sym, ν)
         @test logdensityof(dist_sym, [1.0, 0.0]) ≈ logdensityof(dist_sym, [-1.0, 0.0])
 
         @test_throws DimensionMismatch logdensityof(dist, [1.0])
@@ -79,7 +79,7 @@ include("../hmm_utils.jl")
         μ = [2.0, -1.0]
         Σ = [2.0 0.8; 0.8 1.5]
         ν = 10.0
-        dist = MultivariateT(μ, Σ, ν)
+        dist = MvT(μ, Σ, ν)
 
         n_samples = 5000
         samples = [rand(rng, dist) for _ in 1:n_samples]
@@ -97,7 +97,7 @@ include("../hmm_utils.jl")
         @test isapprox(empirical_cov, expected_cov, atol=0.5)
 
         # Low degrees of freedom (heavier tails) should still sample cleanly.
-        dist_heavy = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 3.0)
+        dist_heavy = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 3.0)
         samples_heavy = [rand(rng, dist_heavy) for _ in 1:1000]
         @test all(length(s) == 2 for s in samples_heavy)
     end
@@ -107,13 +107,13 @@ include("../hmm_utils.jl")
         true_μ = [1.0, -0.5]
         true_Σ = [2.0 0.3; 0.3 1.0]
         true_ν = 8.0
-        true_dist = MultivariateT(true_μ, true_Σ, true_ν)
+        true_dist = MvT(true_μ, true_Σ, true_ν)
 
         n = 2000
         obs = [rand(rng, true_dist) for _ in 1:n]
         weights = ones(n)
 
-        fitted_dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        fitted_dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         fit!(fitted_dist, obs, weights; max_iter=50)
 
         # Parameters should be close to true values
@@ -129,7 +129,7 @@ include("../hmm_utils.jl")
         obs = [randn(rng, 2) for _ in 1:n]
         weights = rand(rng, n) .+ 0.5
 
-        dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         fit!(dist, obs, weights; max_iter=30)
 
         # Should converge to reasonable values
@@ -145,7 +145,7 @@ include("../hmm_utils.jl")
         weights = ones(n)
 
         fixed_ν = 7.0
-        dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], fixed_ν)
+        dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], fixed_ν)
         fit!(dist, obs, weights; max_iter=30, fix_nu=true)
 
         # ν should remain unchanged
@@ -159,7 +159,7 @@ include("../hmm_utils.jl")
         # Empty data
         obs = Vector{Float64}[]
         weights = Float64[]
-        dist = MultivariateT([1.0, 2.0], [1.0 0.0; 0.0 1.0], 5.0)
+        dist = MvT([1.0, 2.0], [1.0 0.0; 0.0 1.0], 5.0)
         old_μ = copy(dist.μ)
         old_Σ = copy(dist.Σ)
         old_ν = dist.ν
@@ -171,7 +171,7 @@ include("../hmm_utils.jl")
         # Zero total weight
         obs = [[1.0, 2.0], [2.0, 3.0], [0.0, 1.0]]
         weights = [0.0, 0.0, 0.0]
-        dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         old_μ = copy(dist.μ)
         old_Σ = copy(dist.Σ)
         old_ν = dist.ν
@@ -183,13 +183,13 @@ include("../hmm_utils.jl")
         # Mismatched lengths
         obs = [[1.0, 2.0], [2.0, 3.0], [0.0, 1.0]]
         weights = [1.0, 1.0]
-        dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         @test_throws DimensionMismatch fit!(dist, obs, weights)
 
         # Wrong observation dimension
         obs = [[1.0], [2.0], [3.0]]
         weights = [1.0, 1.0, 1.0]
-        dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         @test_throws DimensionMismatch fit!(dist, obs, weights)
     end
 
@@ -197,7 +197,7 @@ include("../hmm_utils.jl")
         # Simulate the full workflow an HMM fit would drive.
         rng = Random.MersenneTwister(999)
 
-        true_dist = MultivariateT([2.0, -1.0], [1.5 0.4; 0.4 1.0], 6.0)
+        true_dist = MvT([2.0, -1.0], [1.5 0.4; 0.4 1.0], 6.0)
 
         n_obs = 800
         observations = [rand(rng, true_dist) for _ in 1:n_obs]
@@ -205,7 +205,7 @@ include("../hmm_utils.jl")
         # Simulate HMM posterior weights
         weights = rand(rng, n_obs) .+ 0.5
 
-        fitted = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        fitted = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
         fit!(fitted, observations, weights; max_iter=40)
 
         # Fitted parameters should be sane.
@@ -223,13 +223,13 @@ include("../hmm_utils.jl")
     @testset "HMM Integration" begin
         rng = Random.MersenneTwister(888)
 
-        hmm = create_hmm(MultivariateT; n_states=3, α=12.0, dim=2, rng=rng)
+        hmm = create_hmm(MvT; n_states=3, α=12.0, dim=2, rng=rng)
 
         @test length(hmm.init) == 3
         @test size(hmm.trans) == (3, 3)
         @test length(hmm.dists) == 3
 
-        @test all(dist -> dist isa MultivariateT, hmm.dists)
+        @test all(dist -> dist isa MvT, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
         @test all(sum(hmm.trans; dims=2) .≈ 1.0)
@@ -250,46 +250,44 @@ include("../hmm_utils.jl")
         @test all(isfinite, lls)
 
         # Again with custom parameters.
-        hmm_custom = create_hmm(
-            MultivariateT; n_states=4, dim=3, α=8.0, ν_range=(4.0, 12.0), rng=rng
-        )
+        hmm_custom = create_hmm(MvT; n_states=4, dim=3, α=8.0, ν_range=(4.0, 12.0), rng=rng)
         @test length(hmm_custom.init) == 4
         @test all(dist -> dist.dim == 3, hmm_custom.dists)
         @test all(4.0 <= dist.ν <= 12.0 for dist in hmm_custom.dists)
     end
 end
 
-@testset "MultivariateTDiag" begin
+@testset "MvTDiag" begin
     @testset "Constructor" begin
         # Valid construction
         μ = [0.0, 0.0]
         σ² = [1.0, 2.0]
         ν = 5.0
-        dist = MultivariateTDiag(μ, σ², ν)
+        dist = MvTDiag(μ, σ², ν)
         @test dist.μ == μ
         @test dist.σ² == σ²
         @test dist.ν == ν
         @test dist.dim == 2
 
         # Type promotion
-        dist2 = MultivariateTDiag([0, 0], [1.0, 2.0], 5)
+        dist2 = MvTDiag([0, 0], [1.0, 2.0], 5)
         @test eltype(dist2.μ) == Float64
         @test eltype(dist2.σ²) == Float64
         @test dist2.ν isa Float64
 
         # Invalid parameters
-        @test_throws ArgumentError MultivariateTDiag([0.0, 0.0], [1.0, 2.0], -1.0)  # negative ν
-        @test_throws ArgumentError MultivariateTDiag(Float64[], [1.0], 5.0)  # empty μ
-        @test_throws DimensionMismatch MultivariateTDiag([0.0, 0.0], [1.0], 5.0)  # wrong σ² length
-        @test_throws ArgumentError MultivariateTDiag([0.0], [-1.0], 5.0)  # negative variance
-        @test_throws ArgumentError MultivariateTDiag([0.0], [0.0], 5.0)  # zero variance
+        @test_throws ArgumentError MvTDiag([0.0, 0.0], [1.0, 2.0], -1.0)  # negative ν
+        @test_throws ArgumentError MvTDiag(Float64[], [1.0], 5.0)  # empty μ
+        @test_throws DimensionMismatch MvTDiag([0.0, 0.0], [1.0], 5.0)  # wrong σ² length
+        @test_throws ArgumentError MvTDiag([0.0], [-1.0], 5.0)  # negative variance
+        @test_throws ArgumentError MvTDiag([0.0], [0.0], 5.0)  # zero variance
     end
 
     @testset "DensityInterface" begin
         μ = [1.0, 2.0]
         σ² = [2.0, 1.0]
         ν = 5.0
-        dist = MultivariateTDiag(μ, σ², ν)
+        dist = MvTDiag(μ, σ², ν)
 
         @test DensityKind(dist) == HasDensity()
 
@@ -321,7 +319,7 @@ end
         μ = [2.0, -1.0]
         σ² = [2.0, 1.5]
         ν = 10.0
-        dist = MultivariateTDiag(μ, σ², ν)
+        dist = MvTDiag(μ, σ², ν)
 
         n_samples = 5000
         samples = [rand(rng, dist) for _ in 1:n_samples]
@@ -344,13 +342,13 @@ end
         true_μ = [1.0, -0.5]
         true_σ² = [2.0, 1.0]
         true_ν = 8.0
-        true_dist = MultivariateTDiag(true_μ, true_σ², true_ν)
+        true_dist = MvTDiag(true_μ, true_σ², true_ν)
 
         n = 2000
         obs = [rand(rng, true_dist) for _ in 1:n]
         weights = ones(n)
 
-        fitted_dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        fitted_dist = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(fitted_dist, obs, weights; max_iter=50)
 
         # Parameters should be close to true values
@@ -366,7 +364,7 @@ end
         obs = [randn(rng, 2) for _ in 1:n]
         weights = rand(rng, n) .+ 0.5
 
-        dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        dist = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(dist, obs, weights; max_iter=30)
 
         # Should converge to reasonable values
@@ -382,7 +380,7 @@ end
         weights = ones(n)
 
         fixed_ν = 7.0
-        dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], fixed_ν)
+        dist = MvTDiag([0.0, 0.0], [1.0, 1.0], fixed_ν)
         fit!(dist, obs, weights; max_iter=30, fix_nu=true)
 
         # ν should remain unchanged
@@ -396,7 +394,7 @@ end
         # Empty data
         obs = Vector{Float64}[]
         weights = Float64[]
-        dist = MultivariateTDiag([1.0, 2.0], [1.0, 1.0], 5.0)
+        dist = MvTDiag([1.0, 2.0], [1.0, 1.0], 5.0)
         old_μ = copy(dist.μ)
         old_σ² = copy(dist.σ²)
         old_ν = dist.ν
@@ -408,7 +406,7 @@ end
         # Zero total weight
         obs = [[1.0, 2.0], [2.0, 3.0], [0.0, 1.0]]
         weights = [0.0, 0.0, 0.0]
-        dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        dist = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         old_μ = copy(dist.μ)
         old_σ² = copy(dist.σ²)
         old_ν = dist.ν
@@ -420,13 +418,13 @@ end
         # Mismatched lengths
         obs = [[1.0, 2.0], [2.0, 3.0], [0.0, 1.0]]
         weights = [1.0, 1.0]
-        dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        dist = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         @test_throws DimensionMismatch fit!(dist, obs, weights)
 
         # Wrong observation dimension
         obs = [[1.0], [2.0], [3.0]]
         weights = [1.0, 1.0, 1.0]
-        dist = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        dist = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         @test_throws DimensionMismatch fit!(dist, obs, weights)
     end
 
@@ -434,7 +432,7 @@ end
         # Simulate the full workflow an HMM fit would drive.
         rng = Random.MersenneTwister(999)
 
-        true_dist = MultivariateTDiag([2.0, -1.0], [1.5, 1.0], 6.0)
+        true_dist = MvTDiag([2.0, -1.0], [1.5, 1.0], 6.0)
 
         n_obs = 800
         observations = [rand(rng, true_dist) for _ in 1:n_obs]
@@ -442,7 +440,7 @@ end
         # Simulate HMM posterior weights
         weights = rand(rng, n_obs) .+ 0.5
 
-        fitted = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        fitted = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(fitted, observations, weights; max_iter=40)
 
         # Fitted parameters should be sane.
@@ -460,13 +458,13 @@ end
     @testset "HMM Integration" begin
         rng = Random.MersenneTwister(999)
 
-        hmm = create_hmm(MultivariateTDiag; n_states=3, α=10.0, dim=2, rng=rng)
+        hmm = create_hmm(MvTDiag; n_states=3, α=10.0, dim=2, rng=rng)
 
         @test length(hmm.init) == 3
         @test size(hmm.trans) == (3, 3)
         @test length(hmm.dists) == 3
 
-        @test all(dist -> dist isa MultivariateTDiag, hmm.dists)
+        @test all(dist -> dist isa MvTDiag, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
         @test all(sum(hmm.trans; dims=2) .≈ 1.0)
@@ -488,7 +486,7 @@ end
 
         # Again with custom parameters.
         hmm_custom = create_hmm(
-            MultivariateTDiag;
+            MvTDiag;
             n_states=4,
             dim=3,
             α=8.0,
@@ -506,7 +504,7 @@ end
 @testset "Constructor does not alias caller arrays" begin
     μ = [0.0, 0.0]
     Σ = [1.0 0.3; 0.3 1.0]
-    dist = MultivariateT(μ, Σ, 5.0)
+    dist = MvT(μ, Σ, 5.0)
     lp_before = logdensityof(dist, [0.1, 0.2])
     # Mutating the caller's arrays must not affect the (cached) distribution.
     Σ[1, 1] = 100.0
@@ -517,7 +515,7 @@ end
 
     σ² = [1.0, 2.0]
     μd = [0.0, 0.0]
-    distd = MultivariateTDiag(μd, σ², 5.0)
+    distd = MvTDiag(μd, σ², 5.0)
     lp_before_d = logdensityof(distd, [0.1, 0.2])
     σ²[1] = 100.0
     μd[1] = 50.0
@@ -527,23 +525,23 @@ end
 
 @testset "Array sampling API" begin
     rng = Random.MersenneTwister(42)
-    dist = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
+    dist = MvT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
     samples = rand(rng, dist, 10)
     @test samples isa Vector{Vector{Float64}}
     @test length(samples) == 10
     @test all(length(s) == 2 for s in samples)
 
-    distd = MultivariateTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
+    distd = MvTDiag([0.0, 0.0], [1.0, 2.0], 5.0)
     samples_d = rand(rng, distd, 10)
     @test samples_d isa Vector{Vector{Float64}}
     @test length(samples_d) == 10
 end
 
 @testset "Float32 type stability" begin
-    dist = MultivariateT(Float32[0, 0], Float32[1 0; 0 1], 5.0f0)
+    dist = MvT(Float32[0, 0], Float32[1 0; 0 1], 5.0f0)
     @test logdensityof(dist, Float32[0.1, 0.2]) isa Float32
 
-    distd = MultivariateTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
+    distd = MvTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
     @test logdensityof(distd, Float32[0.1, 0.2]) isa Float32
 end
 
@@ -553,7 +551,7 @@ end
     rng = Random.MersenneTwister(202)
     obs = [randn(rng, 2) for _ in 1:2000]
     w = ones(2000)
-    dist = MultivariateT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+    dist = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
     fit!(dist, obs, w; max_iter=100)
     @test isfinite(dist.ν)
     @test dist.ν <= 1.0e6
@@ -563,14 +561,14 @@ end
 
 @testset "rand! in-place sampling" begin
     rng = Random.MersenneTwister(303)
-    dist = MultivariateT([2.0, -1.0], [2.0 0.8; 0.8 1.5], 10.0)
+    dist = MvT([2.0, -1.0], [2.0 0.8; 0.8 1.5], 10.0)
     out = zeros(2)
     @test rand!(rng, dist, out) === out
     @test_throws DimensionMismatch rand!(rng, dist, zeros(3))
     S = reduce(hcat, (copy(rand!(rng, dist, out)) for _ in 1:20_000))
     @test vec(mean(S; dims=2)) ≈ dist.μ atol = 0.1
 
-    distd = MultivariateTDiag([1.0, -2.0], [1.0, 2.0], 8.0)
+    distd = MvTDiag([1.0, -2.0], [1.0, 2.0], 8.0)
     @test rand!(rng, distd, out) === out
     @test_throws DimensionMismatch rand!(rng, distd, zeros(3))
     Sd = reduce(hcat, (copy(rand!(rng, distd, out)) for _ in 1:20_000))
@@ -586,7 +584,7 @@ end
     rng = Random.MersenneTwister(404)
     obs = [BigFloat.(randn(rng, 2) .+ [1.0, -1.0]) for _ in 1:200]
     w = ones(200)
-    dist = MultivariateT(BigFloat[0.0, 0.0], BigFloat[1.0 0.0; 0.0 1.0], BigFloat(5.0))
+    dist = MvT(BigFloat[0.0, 0.0], BigFloat[1.0 0.0; 0.0 1.0], BigFloat(5.0))
     fit!(dist, obs, w; max_iter=5, fix_nu=true)
     @test all(isfinite, dist.μ)
     @test isapprox(Float64.(dist.μ), [1.0, -1.0]; atol=0.3)

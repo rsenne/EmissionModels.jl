@@ -311,11 +311,19 @@ end
     @test glm.σ2 ≈ sqrt(eps(Float64))
     @test isfinite(logdensityof(glm, 2.0; control_seq=[1.0]))
 
-    # All-zero weights cannot produce a fit; error instead of NaN parameters.
+    #= All-zero weights (a state with no responsibility this EM step): fit! is
+       a no-op returning the emission unchanged, matching DDM `fit!`, rather
+       than erroring. =#
     glm0 = GaussianGLM([0.0], 1.0, RidgePrior(1.0))
-    @test_throws ArgumentError fit!(glm0, y, zeros(3); control_seq=X)
+    @test fit!(glm0, y, zeros(3); control_seq=X) === glm0
+    @test glm0.β == [0.0]
+    @test glm0.σ2 == 1.0
 
     mv0 = MvGaussianGLM(zeros(1, 2), Matrix(1.0I, 2, 2), RidgePrior(1.0))
     mvobs = [randn(Random.MersenneTwister(1), 2) for _ in 1:3]
-    @test_throws ArgumentError fit!(mv0, mvobs, zeros(3); control_seq=X)
+    B_before = copy(mv0.B)
+    Σ_before = copy(mv0.Σ)
+    @test fit!(mv0, mvobs, zeros(3); control_seq=X) === mv0
+    @test mv0.B == B_before
+    @test mv0.Σ == Σ_before
 end

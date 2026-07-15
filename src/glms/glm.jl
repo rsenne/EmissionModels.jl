@@ -11,7 +11,7 @@ keyword (`control_seq`) interface internally:
 - `StatsAPI.fit!(glm, obs_seq, weight_seq; control_seq)`: weighted in-place update
 
 The `ControlledEmission` positional signatures HMM expects (`logdensityof(glm,
-obs, control)`, `rand(rng, glm, control)`, `fit!(glm, obs_seq, control_seq, weights)`)
+obs, control)`, `rand(rng, glm, control)`, `fit!(glm, obs_seq, control_seq, weight_seq)`)
 are provided as thin adapters at the bottom of this file. `DensityKind` is
 inherited from `ControlledEmission`.
 
@@ -36,6 +36,37 @@ The gradient and Hessian methods accumulate (+=) rather than overwrite so
 multiple priors can compose additively.
 """
 abstract type AbstractPrior end
+
+"""
+    neglogprior(prior::AbstractPrior, β) -> Real
+
+Negative log-prior of the coefficients `β` under `prior`, up to an additive
+constant. This is the regularization term added to the negative log-likelihood
+in GLM `fit!`. Returns `zero(eltype(β))` for [`NoPrior`](@ref); for
+[`RidgePrior`](@ref) it is `0.5 λ ‖β‖²`.
+
+Implement this (together with [`neglogprior_grad!`](@ref) and
+[`neglogprior_hess!`](@ref)) to define a custom prior.
+"""
+function neglogprior end
+
+"""
+    neglogprior_grad!(prior::AbstractPrior, g, β)
+
+Accumulate (`+=`) the gradient of the negative log-prior `∂(-log p(β))/∂β` into
+`g`. Accumulates rather than overwrites so multiple priors compose additively.
+See [`neglogprior`](@ref).
+"""
+function neglogprior_grad! end
+
+"""
+    neglogprior_hess!(prior::AbstractPrior, H, β)
+
+Accumulate (`+=`) the Hessian of the negative log-prior `∂²(-log p(β))/∂β²` into
+`H`. Accumulates rather than overwrites so multiple priors compose additively.
+See [`neglogprior`](@ref).
+"""
+function neglogprior_hess! end
 
 """
     NoPrior <: AbstractPrior
@@ -137,14 +168,15 @@ end
 function StatsAPI.fit!(
     reg::GaussianGLM{T},
     obs_seq::AbstractVector{<:Real},
-    weights::AbstractVector{<:Real};
+    weight_seq::AbstractVector{<:Real};
     control_seq::AbstractMatrix{<:Real},
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
         throw(DimensionMismatch("obs_seq length $(length(obs_seq)) ≠ control_seq rows $n"))
-    length(weights) == n ||
-        throw(DimensionMismatch("weights length $(length(weights)) ≠ control_seq rows $n"))
+    length(weight_seq) == n || throw(
+        DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ control_seq rows $n"),
+    )
     length(reg.β) == p ||
         throw(DimensionMismatch("β length $(length(reg.β)) ≠ control_seq columns $p"))
 
@@ -156,7 +188,7 @@ function StatsAPI.fit!(
        first index), halving the inner-loop work; the Cholesky below reads
        uplo = :L. =#
     for i in 1:n
-        w = T(weights[i])
+        w = T(weight_seq[i])
         wsum += w
         x_i = view(control_seq, i, :)
         y_i = T(obs_seq[i])
@@ -169,7 +201,9 @@ function StatsAPI.fit!(
             XWy[a] += wxa * y_i
         end
     end
-    wsum > 0 || throw(ArgumentError("weights must have positive sum, got $wsum"))
+    # Zero total weight (e.g. a state with no responsibility this EM step):
+    # leave the emission unchanged rather than erroring, matching DDM `fit!`.
+    wsum > 0 || return reg
 
     # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
     neglogprior_hess!(reg.prior, XWX, reg.β)
@@ -189,7 +223,7 @@ function StatsAPI.fit!(
     for i in 1:n
         x_i = view(control_seq, i, :)
         r_i = T(obs_seq[i]) - dot(reg.β, x_i)
-        sw_r2 += T(weights[i]) * r_i * r_i
+        sw_r2 += T(weight_seq[i]) * r_i * r_i
     end
     #= Type-aware variance floor (same floor as the diagonal-t M-step): a
        perfect fit (e.g. n ≤ p) would otherwise set σ2 = 0, breaking the
@@ -761,7 +795,9 @@ function StatsAPI.fit!(
         end
     end
 
-    wsum > 0 || throw(ArgumentError("weights must have positive sum, got $wsum"))
+    # Zero total weight (e.g. a state with no responsibility this EM step):
+    # leave the emission unchanged rather than erroring, matching DDM `fit!`.
+    wsum > 0 || return glm
 
     #= Per-column ridge: λI added to XᵀWX gives B = (XᵀWX + λI) \ XᵀWY,
        the joint MAP for independent N(0, (1/λ)I) priors on each column of B.
@@ -1582,9 +1618,9 @@ function StatsAPI.fit!(
     glm::AbstractGLM,
     obs_seq::AbstractVector,
     control_seq::AbstractVector{<:AbstractVector},
-    weights::AbstractVector{<:Real};
+    weight_seq::AbstractVector{<:Real};
     kwargs...,
 )
     X = _ControlRowsMatrix(control_seq, _indim(glm))
-    return fit!(glm, obs_seq, weights; control_seq=X, kwargs...)
+    return fit!(glm, obs_seq, weight_seq; control_seq=X, kwargs...)
 end

@@ -71,4 +71,7 @@ glm = GaussianGLM(zeros(3), 1.0, LassoPrior(0.5))
 AbstractPrior
 NoPrior
 RidgePrior
+neglogprior
+neglogprior_grad!
+neglogprior_hess!
 ```

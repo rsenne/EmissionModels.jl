@@ -12,8 +12,8 @@ using SequentialSamplingModels: SequentialSamplingModels
 
   Steady-state targets (per call):
     - Univariate logdensityof, MvBernoulli/MvPoisson logdensityof,
-      MultivariateTDiag logdensityof, PoissonZeroInflated logdensityof: 0 B
-    - MvGaussianGLM logdensityof, MultivariateT logdensityof: 1 length-k
+      MvTDiag logdensityof, PoissonZeroInflated logdensityof: 0 B
+    - MvGaussianGLM logdensityof, MvT logdensityof: 1 length-k
       vector per call.
     - All Mv rand!: 0 bytes
     - fit! is bounded by O(p² + k²) workspace plus (for Bernoulli/Poisson)
@@ -246,9 +246,9 @@ s)
         @test (@allocated fit!(gmn, ymn, w; control_seq=X)) ≤ 40_000
     end
 
-    @testset "MultivariateT (full Σ)" begin
+    @testset "MvT (full Σ)" begin
         d = 2
-        mvt = MultivariateT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
+        mvt = MvT([0.0, 0.0], [1.0 0.3; 0.3 1.0], 5.0)
         xv = [0.1, 0.2]
 
         #= Cholesky stored as :L (no .L copy). Residual is allocated locally
@@ -268,9 +268,9 @@ s)
         n = 500
         obs = [randn(rng, d) for _ in 1:n]
         w = ones(n)
-        mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
+        mvt2 = MvT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
         fit!(mvt2, obs, w; max_iter=5)
-        mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
+        mvt2 = MvT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
         # The ν step still goes through Optim, hence the loose bound.
         @test (@allocated fit!(mvt2, obs, w; max_iter=5)) ≤ 1_000_000
     end
@@ -305,9 +305,9 @@ s)
         @test (@allocated fit!(d2, obs, w; control_seq=controls, max_iter=5)) ≤ 10_000_000
     end
 
-    @testset "MultivariateTDiag" begin
+    @testset "MvTDiag" begin
         d = 2
-        mvtd = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        mvtd = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         xv = [0.1, 0.2]
 
         bench_logd_unctrl(mvtd, xv, 1)
@@ -323,9 +323,9 @@ s)
         n = 500
         obs = [randn(rng, d) for _ in 1:n]
         w = ones(n)
-        mvtd2 = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        mvtd2 = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         fit!(mvtd2, obs, w; max_iter=5)
-        mvtd2 = MultivariateTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
+        mvtd2 = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)
         @test (@allocated fit!(mvtd2, obs, w; max_iter=5)) ≤ 20_000
     end
 end

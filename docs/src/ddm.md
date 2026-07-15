@@ -50,7 +50,7 @@ logdensityof(d, obs, 0.256)
 `fit!` maximizes the weighted log-likelihood ``\sum_i w_i \log p(\mathrm{choice}_i, \mathrm{rt}_i \mid \mathrm{control}_i)`` in place. The density is the Navarro & Fuss (2009) series for the Wiener first passage time; positive parameters are optimized in ``\log`` space and bounded ones (``z``, ``τ``) through a logistic map, so LBFGS runs unconstrained with gradients from ForwardDiff. ``τ`` is capped at the smallest reaction time carrying positive weight. Each call warm-starts from the current parameters, so it refines an EM iterate rather than restarting.
 
 ```julia
-fit!(d, obs_seq, weights; control_seq=stimulus_codes, max_iter=100, gtol=1e-8)
+fit!(d, obs_seq, weight_seq; control_seq=stimulus_codes, max_iter=100, gtol=1e-8)
 ```
 
 ## The DDM-HMM

@@ -1,4 +1,10 @@
 using EmissionModels
+using EmissionModels:
+    compute_discrepancy,
+    acdc_loss,
+    get_critical_rho_values,
+    stochastic_drivers,
+    StochasticDriverResult
 using HiddenMarkovModels
 using Distributions
 using LinearAlgebra
@@ -103,7 +109,7 @@ end
     @test all(<(0.1), mres.component_discrepancies)
 end
 
-@testset "Driver recovery for PoissonZeroInflated and MultivariateT" begin
+@testset "Driver recovery for PoissonZeroInflated and MvT" begin
     rng = Random.MersenneTwister(2024)
     EM = EmissionModels
 
@@ -116,7 +122,7 @@ end
     @test compute_discrepancy(KSDiscrepancy(), reshape(zeps, 1, :)) < 0.05
 
     Σ = [1.0 0.5 0.2; 0.5 2.0 0.3; 0.2 0.3 1.5]
-    mvt = MultivariateT([1.0, -2.0, 0.5], Σ, 6.0)
+    mvt = MvT([1.0, -2.0, 0.5], Σ, 6.0)
     E = reduce(hcat, (EM._emission_to_driver(rng, mvt, rand(rng, mvt)) for _ in 1:40_000))
     @test size(E, 1) == 3
     @test all(0 .<= E .<= 1)
@@ -126,7 +132,7 @@ end
     @test abs(Statistics.cov(E[1, :], E[3, :])) < 0.01
 
     # Diagonal scale variant.
-    mvtd = MultivariateTDiag([0.0, 1.0], [1.0, 3.0], 4.0)
+    mvtd = MvTDiag([0.0, 1.0], [1.0, 3.0], 4.0)
     Ed = reduce(
         hcat, (EM._emission_to_driver(rng, mvtd, rand(rng, mvtd)) for _ in 1:40_000)
     )
