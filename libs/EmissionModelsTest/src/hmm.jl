@@ -1,11 +1,12 @@
-using EmissionModels
-using Distributions
-using HiddenMarkovModels
-using Random
-using LinearAlgebra
+"""
+    create_hmm(emission_model_type; n_states=3, α=10.0, rng=Random.default_rng(), kwargs...)
 
+Build an `HMM` with random sticky transitions and `n_states` emissions of
+`emission_model_type`. Extra keyword arguments are forwarded to
+[`create_emissions`](@ref).
+"""
 function create_hmm(
-    emission_model_type; n_states=3, α=10.0, rng=Random.GLOBAL_RNG, kwargs...
+    emission_model_type; n_states=3, α=10.0, rng=Random.default_rng(), kwargs...
 )
     # Sticky transitions: α weights the diagonal of each Dirichlet draw.
     trans = Matrix{Float64}(undef, n_states, n_states)
@@ -16,11 +17,17 @@ function create_hmm(
     end
 
     init = rand(rng, Dirichlet(ones(n_states)))
-    emissions = _create_emissions(emission_model_type, n_states, rng; kwargs...)
+    emissions = create_emissions(emission_model_type, n_states, rng; kwargs...)
     return HMM(init, trans, emissions)
 end
 
-function _create_emissions(
+"""
+    create_emissions(::Type{T}, n_states, rng; kwargs...)
+
+Draw `n_states` random emissions of type `T` for [`create_hmm`](@ref).
+Add a method for each emission type that should be usable in HMM recipes.
+"""
+function create_emissions(
     ::Type{PoissonZeroInflated},
     n_states,
     rng;
@@ -37,9 +44,7 @@ function _create_emissions(
     return emissions
 end
 
-function _create_emissions(
-    ::Type{MvT}, n_states, rng; dim=2, ν_range=(3.0, 10.0), kwargs...
-)
+function create_emissions(::Type{MvT}, n_states, rng; dim=2, ν_range=(3.0, 10.0), kwargs...)
     emissions = Vector{MvT}(undef, n_states)
     for i in 1:n_states
         μ = randn(rng, dim) .* 2.0
@@ -55,7 +60,7 @@ function _create_emissions(
     return emissions
 end
 
-function _create_emissions(
+function create_emissions(
     ::Type{MvTDiag},
     n_states,
     rng;

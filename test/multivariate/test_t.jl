@@ -1,4 +1,5 @@
 using EmissionModels
+using EmissionModelsTest
 using Test
 using Random
 using DensityInterface
@@ -9,8 +10,6 @@ using LinearAlgebra
 using HiddenMarkovModels
 
 import StatsAPI: fit!
-
-include("../hmm_utils.jl")
 
 @testset "MvT" begin
     @testset "Constructor" begin
@@ -224,30 +223,12 @@ include("../hmm_utils.jl")
         rng = Random.MersenneTwister(888)
 
         hmm = create_hmm(MvT; n_states=3, α=12.0, dim=2, rng=rng)
-
         @test length(hmm.init) == 3
-        @test size(hmm.trans) == (3, 3)
-        @test length(hmm.dists) == 3
-
         @test all(dist -> dist isa MvT, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
-        @test all(sum(hmm.trans; dims=2) .≈ 1.0)
-        @test sum(hmm.init) ≈ 1.0
-
-        state_seq, obs_seq = rand(rng, hmm, 100)
-        @test length(state_seq) == 100
-        @test length(obs_seq) == 100
+        _, obs_seq = test_hmm_integration(rng, hmm; T=100)
         @test all(obs -> length(obs) == 2, obs_seq)
-
-        log_alpha, log_ll = forward(hmm, obs_seq)
-        @test size(log_alpha) == (3, 100)
-        @test all(isfinite, log_alpha)
-        @test all(isfinite, log_ll)
-
-        hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
-        @test length(lls) <= 5
-        @test all(isfinite, lls)
 
         # Again with custom parameters.
         hmm_custom = create_hmm(MvT; n_states=4, dim=3, α=8.0, ν_range=(4.0, 12.0), rng=rng)
@@ -459,30 +440,12 @@ end
         rng = Random.MersenneTwister(999)
 
         hmm = create_hmm(MvTDiag; n_states=3, α=10.0, dim=2, rng=rng)
-
         @test length(hmm.init) == 3
-        @test size(hmm.trans) == (3, 3)
-        @test length(hmm.dists) == 3
-
         @test all(dist -> dist isa MvTDiag, hmm.dists)
         @test all(dist -> dist.dim == 2, hmm.dists)
 
-        @test all(sum(hmm.trans; dims=2) .≈ 1.0)
-        @test sum(hmm.init) ≈ 1.0
-
-        state_seq, obs_seq = rand(rng, hmm, 100)
-        @test length(state_seq) == 100
-        @test length(obs_seq) == 100
+        _, obs_seq = test_hmm_integration(rng, hmm; T=100)
         @test all(obs -> length(obs) == 2, obs_seq)
-
-        log_alpha, log_ll = forward(hmm, obs_seq)
-        @test size(log_alpha) == (3, 100)
-        @test all(isfinite, log_alpha)
-        @test all(isfinite, log_ll)
-
-        hmm_fitted, lls = baum_welch(hmm, obs_seq; max_iterations=5)
-        @test length(lls) <= 5
-        @test all(isfinite, lls)
 
         # Again with custom parameters.
         hmm_custom = create_hmm(

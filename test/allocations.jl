@@ -1,4 +1,5 @@
 using EmissionModels
+using EmissionModelsTest
 using Test
 using Random
 using LinearAlgebra
@@ -9,6 +10,8 @@ using SequentialSamplingModels: SequentialSamplingModels
 #=
   Allocation regression tests. Warm up first, then call the operation many
   times in a type-stable function and divide @allocated by the rep count.
+  The `bench_*` loop helpers and `ALLOC_SLOP` (Julia 1.10 measurement
+  overhead) live in EmissionModelsTest.
 
   Steady-state targets (per call):
     - Univariate logdensityof, MvBernoulli/MvPoisson logdensityof,
@@ -18,71 +21,7 @@ using SequentialSamplingModels: SequentialSamplingModels
     - All Mv rand!: 0 bytes
     - fit! is bounded by O(p² + k²) workspace plus (for Bernoulli/Poisson)
       Optim's Newton solver state a few KB, independent of n.
-
-  On Julia 1.10 each `@allocated` measurement of these benchmark loops reports
-  a constant ~16 B of measurement overhead (independent of REPS; gone on
-  1.11+). `ALLOC_SLOP` absorbs it. I'm too lazy to figure out why.
 =#
-const ALLOC_SLOP = VERSION < v"1.11" ? 32 : 0
-
-bench_logd(d, y, x, n) = (s = 0.0;
-for _ in 1:n
-    s += logdensityof(d, y; control_seq=x)
-end;
-s)
-bench_logd_unctrl(d, y, n) = (s = 0.0;
-for _ in 1:n
-    s += logdensityof(d, y)
-end;
-s)
-bench_rand_scalar(rng, d, x, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d; control_seq=x)
-end;
-s)
-bench_rand_int(rng, d, x, n) = (s = 0;
-for _ in 1:n
-    s += rand(rng, d; control_seq=x)
-end;
-s)
-bench_rand!_v(rng, d, out, x, n) = (s = 0.0;
-for _ in 1:n
-    rand!(rng, d, out; control_seq=x)
-    s += out[1]
-end;
-s)
-bench_rand!_i(rng, d, out, x, n) = (s = 0;
-for _ in 1:n
-    rand!(rng, d, out; control_seq=x)
-    s += out[1]
-end;
-s)
-bench_rand_unctrl_scalar(rng, d, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d)
-end;
-s)
-bench_rand_unctrl_vec(rng, d, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d)[1]
-end;
-s)
-bench_rand!_unctrl(rng, d, out, n) = (s = 0.0;
-for _ in 1:n
-    rand!(rng, d, out)
-    s += out[1]
-end;
-s)
-bench_logd_ddm(d, y, c, n) = (s = 0.0;
-for _ in 1:n
-    s += logdensityof(d, y, c)
-end;
-s)
-bench_rand_ddm(rng, d, c, n) = (s = 0.0;
-for _ in 1:n
-    s += rand(rng, d, c).rt
-end;
-s)
 
 @testset "Allocations (steady state)" begin
     rng = Random.MersenneTwister(0)
