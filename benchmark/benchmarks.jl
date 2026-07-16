@@ -8,6 +8,14 @@ include(joinpath(@__DIR__, "utils.jl"))
 
 using LinearAlgebra: I
 
+#= benchpkg runs this script (the `--bench-on=main` copy) against every
+   revision it compares, so it must load on revisions where the API freeze
+   (#55) renamed MultivariateT/MultivariateTDiag to MvT/MvTDiag. =#
+if !isdefined(EmissionModels, :MultivariateT)
+    const MultivariateT = EmissionModels.MvT
+    const MultivariateTDiag = EmissionModels.MvTDiag
+end
+
 const SUITE = BenchmarkGroup()
 
 rng = Random.MersenneTwister(0)
