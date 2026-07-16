@@ -4,6 +4,7 @@ using SequentialSamplingModels
 using SequentialSamplingModels: DDM
 using HiddenMarkovModels: ControlledEmission, ControlledEmissionHMM, baum_welch, forward
 using DensityInterface
+using ForwardDiff
 using StatsAPI
 using Statistics: mean, var
 using Random
@@ -102,6 +103,29 @@ const EM = EmissionModels
         @test issorted(Fs)
         @test all(0 .≤ Fs .≤ 1)
         @test last(Fs) ≈ EM._ddm_prob_upper(ν, α, z) atol = 1e-6
+    end
+
+    @testset "automatic differentiation through the extension" begin
+        #= fit! gets its LBFGS gradients by pushing ForwardDiff duals through
+           _ddm_logpdf, so the extension's float(promote_type(...)) must pass
+           dual parameters through unchanged (float only maps Integer inputs
+           to a type where ±Inf is representable). Check the gradient against
+           central finite differences, and that the zero-density guards return
+           a typed -Inf instead of throwing on duals. =#
+        f(θ) = EM._ddm_logpdf(θ[1], θ[2], θ[3], θ[4], 1, 0.6)
+        θ = [1.5, 1.0, 0.4, 0.2]
+        g = ForwardDiff.gradient(f, θ)
+        @test all(isfinite, g)
+        h = 1e-6
+        for i in eachindex(θ)
+            θp = copy(θ)
+            θm = copy(θ)
+            θp[i] += h
+            θm[i] -= h
+            @test isapprox(g[i], (f(θp) - f(θm)) / (2h); rtol=1e-4)
+        end
+        g_bad = ForwardDiff.gradient(θ -> EM._ddm_logpdf(θ[1], θ[2], θ[3], θ[4], 3, 0.6), θ)
+        @test all(iszero, g_bad)
     end
 
     @testset "type stability" begin
