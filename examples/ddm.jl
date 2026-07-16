@@ -52,7 +52,7 @@ fit!(d, obs_seq, ones(1000); control_seq=stimulus_codes)
 As a synthetic example, consider a DDM-HMM with two regimes: an *engaged*
 state, whose strong drift and wide boundaries produce fast, stimulus-driven,
 mostly accurate choices, and a *lapsed* state, whose near-zero drift produces
-slow, near-chance responding. The heavy diagonal of the transition matrix makes the regimes
+slow, near-chance responding. The heavy diagonal of the transition matrix makes the states
 sticky — runs of roughly $1/0.05 = 20$ engaged and $1/0.1 = 10$ lapsed trials
 on average — which is the trial-history structure a trial-independent mixture
 model cannot capture.
