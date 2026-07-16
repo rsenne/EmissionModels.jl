@@ -11,12 +11,7 @@ using SequentialSamplingModels   # activates the extension
 
 ## Observations and controls
 
-An observation is a `(choice, rt)` pair (a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand`), with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift. Single-trial calls take the control as the last positional argument — `logdensityof(d, obs, control)` and `rand(rng, d, control)` — while `fit!` takes the whole per-trial sequence through the `control_seq` keyword:
-
-```julia
-logdensityof(d, (1, 0.6), +1)                        # one trial, control = +1
-fit!(d, obs_seq, weight_seq; control_seq=controls)   # controls[i] belongs to obs_seq[i]
-```
+An observation is a `(choice, rt)` pair (a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand`), with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift. 
 
 Both models are stimulus-coded: the boundaries mark stimulus/choice identity (e.g. right vs. left), not correct vs. error, so correctness is read off afterward from the trial condition. The starting point ``z`` is therefore a side bias rather than an accuracy bias. The [HSSM stimulus-coding tutorial](https://lnccbrown.github.io/HSSM/tutorials/tutorial_stim_coding/) walks through how this changes parameter interpretation relative to accuracy coding.
 
