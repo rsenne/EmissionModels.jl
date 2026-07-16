@@ -3,6 +3,12 @@ using Test
 using Aqua
 using StatsAPI
 using JuliaFormatter
+using Pkg
+
+#= EmissionModelsTest (libs/) houses shared test recipes. It is unregistered,
+   so develop it into the active (sandboxed) test environment at runtime, the
+   same way HiddenMarkovModels.jl wires in HMMTest. =#
+Pkg.develop(; path=joinpath(dirname(@__DIR__), "libs", "EmissionModelsTest"))
 
 @testset "EmissionModels.jl" begin
     @testset "Code Formatting" begin
