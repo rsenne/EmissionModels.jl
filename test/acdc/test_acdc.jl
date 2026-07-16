@@ -210,6 +210,30 @@ end
     @test_throws ArgumentError EM._emission_to_driver(rng, GaussianGLM([0.5], 1.0), 1.0)
 end
 
+@testset "stochastic_drivers on a ControlledEmissionHMM" begin
+    #= End-to-end regression: driver recovery on a controlled HMM must unwrap the
+       ControlBoundEmission that obs_distributions binds to each control. Under
+       the generating model the recovered drivers are near-uniform. =#
+    rng = Random.MersenneTwister(5)
+    p, T = 3, 3000
+    dists = [PoissonGLM([0.2, 0.5, -0.3]), PoissonGLM([1.2, -0.4, 0.6])]
+    hmm = ControlledEmissionHMM([0.6, 0.4], [0.9 0.1; 0.1 0.9], dists)
+    control_seq = [vcat(1.0, randn(rng, p - 1)) for _ in 1:T]
+    obs_seq = rand(rng, hmm, control_seq).obs_seq
+
+    acdc = component_discrepancies(
+        hmm,
+        obs_seq,
+        KSDiscrepancy();
+        control_seq=control_seq,
+        seq_ends=(T,),
+        rng=Random.MersenneTwister(1),
+    )
+    @test length(acdc.component_discrepancies) == 2
+    @test all(isfinite, acdc.component_discrepancies)
+    @test maximum(acdc.component_discrepancies) < 0.1
+end
+
 @testset "Discrepancy edge cases" begin
     rng = Random.MersenneTwister(123)
 

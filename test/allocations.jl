@@ -4,6 +4,7 @@ using Random
 using LinearAlgebra
 using DensityInterface
 using StatsAPI
+using SequentialSamplingModels: SequentialSamplingModels
 
 #=
   Allocation regression tests. Warm up first, then call the operation many
@@ -70,6 +71,16 @@ bench_rand!_unctrl(rng, d, out, n) = (s = 0.0;
 for _ in 1:n
     rand!(rng, d, out)
     s += out[1]
+end;
+s)
+bench_logd_ddm(d, y, c, n) = (s = 0.0;
+for _ in 1:n
+    s += logdensityof(d, y, c)
+end;
+s)
+bench_rand_ddm(rng, d, c, n) = (s = 0.0;
+for _ in 1:n
+    s += rand(rng, d, c).rt
 end;
 s)
 
@@ -262,6 +273,36 @@ s)
         mvt2 = MultivariateT([0.0, 0.0], Matrix(1.0I, d, d), 5.0)
         # The ν step still goes through Optim, hence the loose bound.
         @test (@allocated fit!(mvt2, obs, w; max_iter=5)) ≤ 1_000_000
+    end
+
+    @testset "DDM emissions" begin
+        d = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.2)
+
+        #= Each density evaluation constructs SSM's mutable `DDM` (twice for
+           choice 1, which flips the boundary) that is SSM's public API, so
+           the bound is a small per-call constant, not zero. =#
+        bench_logd_ddm(d, (1, 0.6), 1.0, 1)
+        bench_logd_ddm(d, (2, 0.6), -1.0, 1)
+        @test (@allocated bench_logd_ddm(d, (1, 0.6), 1.0, REPS)) ≤ 256 * REPS
+        @test (@allocated bench_logd_ddm(d, (2, 0.6), -1.0, REPS)) ≤ 256 * REPS
+
+        # rand: one DDM construction; SSM's rejection sampler is scalar math.
+        bench_rand_ddm(rng, d, 1.0, 1)
+        @test (@allocated bench_rand_ddm(rng, d, 1.0, REPS)) ≤ 256 * REPS
+
+        #= fit!: every NLL/gradient evaluation rebuilds a Dual-typed DDM per
+           observation, so allocations scale with n × line-search evaluations
+           for as long as the density goes through SSM's mutable struct.
+           Regression guard against something worse, not a zero-alloc claim. =#
+        rngf = Random.MersenneTwister(1)
+        n = 200
+        controls = [rand(rngf, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rngf, d, controls[i]) for i in 1:n]
+        w = ones(n)
+        d2 = StimulusCodedDDM(; ν=1.5, α=0.9, z=0.5, τ=0.15)
+        fit!(d2, obs, w; control_seq=controls, max_iter=5)
+        d2 = StimulusCodedDDM(; ν=1.5, α=0.9, z=0.5, τ=0.15)
+        @test (@allocated fit!(d2, obs, w; control_seq=controls, max_iter=5)) ≤ 10_000_000
     end
 
     @testset "MultivariateTDiag" begin

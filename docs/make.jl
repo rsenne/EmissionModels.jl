@@ -41,6 +41,7 @@ makedocs(;
         ],
         "Distributions" => "distributions.md",
         "GLM Emissions" => "glm.md",
+        "DDM Emissions" => "ddm.md",
         "Priors" => "priors.md",
         "ACDC Model Selection" => "acdc.md",
         "Custom Emission Models" => "custom.md",
