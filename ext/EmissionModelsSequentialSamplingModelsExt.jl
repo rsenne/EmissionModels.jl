@@ -16,6 +16,9 @@ function EmissionModels._ddm_logpdf(
     #= Promote parameters and rt together before handing them to SSM: its
        series internals require one homogeneous element type, and mixed
        precisions (e.g. Float32 emission, Float64 rt) would MethodError.
+       `float` only maps Integer inputs to a type where ±Inf is representable;
+       every other Real, ForwardDiff duals (this is the path fit!
+       differentiates), Float32, BigFloat, etc.pass through unchanged.
        The series can also overflow at extreme parameters; treat both as
        zero density. =#
     p = try

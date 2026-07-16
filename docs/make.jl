@@ -37,6 +37,7 @@ makedocs(;
         "Tutorials" => [
             joinpath("examples", "basics.md"),
             joinpath("examples", "glm.md"),
+            joinpath("examples", "ddm.md"),
             joinpath("examples", "acdc.md"),
         ],
         "Distributions" => "distributions.md",
