@@ -37,8 +37,8 @@ K = acdc_select([result], 0.05)
 
 To score a candidate set of fitted models, build one [`ACDCResult`](@ref) per
 model (ordered by state count) and pass the vector to [`acdc_select`](@ref).
-[`get_critical_rho_values`](@ref) returns the cutoffs at which the selection
-changes.
+The internal helper `EmissionModels.get_critical_rho_values` returns the cutoffs
+at which the selection changes.
 
 ## Custom emissions
 
@@ -49,18 +49,16 @@ driver vector in ``[0,1]``. Draw any randomness (e.g. for a randomized PIT) from
 
 ## API Reference
 
-### Driver recovery and discrepancies
+### Model selection
 
 ```@docs
-stochastic_drivers
 component_discrepancies
-compute_discrepancy
+acdc_select
 ```
 
 ### Discrepancy measures
 
 ```@docs
-ComponentDiscrepancy
 KLDiscrepancy
 KSDiscrepancy
 WassersteinDiscrepancy
@@ -68,17 +66,23 @@ SquaredErrorDiscrepancy
 MMDDiscrepancy
 ```
 
-### Loss and selection
+### Result type
 
 ```@docs
-acdc_loss
-acdc_select
-get_critical_rho_values
+ACDCResult
 ```
 
-### Result types
+### Internal helpers
+
+These are not exported; reach them through `EmissionModels.` if needed. They
+back [`component_discrepancies`](@ref) and [`acdc_select`](@ref) and are
+documented for reference rather than as part of the stable public API.
 
 ```@docs
-StochasticDriverResult
-ACDCResult
+EmissionModels.stochastic_drivers
+EmissionModels.compute_discrepancy
+EmissionModels.acdc_loss
+EmissionModels.get_critical_rho_values
+EmissionModels.StochasticDriverResult
+EmissionModels.ComponentDiscrepancy
 ```

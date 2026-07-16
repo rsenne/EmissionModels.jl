@@ -26,7 +26,7 @@ dist = PoissonZeroInflated(5.0, 0.3)
 # Sample, evaluate densities, or fit to data
 x = rand(dist)
 logp = logdensityof(dist, x)
-fit!(dist, observations, weights)
+fit!(dist, observations, weight_seq)
 ```
 
 ## Distribution models
@@ -43,8 +43,8 @@ All types implement the `HiddenMarkovModels` emission interface (`rand`, `logden
 
 | Type | Description |
 |------|-------------|
-| `MultivariateT(μ, Σ, ν)` | Full-covariance multivariate Student's t. |
-| `MultivariateTDiag(μ, σ², ν)` | Diagonal-covariance multivariate Student's t. |
+| `MvT(μ, Σ, ν)` | Full-covariance multivariate Student's t. |
+| `MvTDiag(μ, σ², ν)` | Diagonal-covariance multivariate Student's t. |
 
 ### GLM emissions (observation depends on a control vector)
 

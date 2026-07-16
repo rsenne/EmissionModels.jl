@@ -29,9 +29,10 @@ include("acdc/drivers.jl")
 include("acdc/hmm.jl")
 
 # exports
-export rand, logdensityof, fit!
+export rand, rand!, logdensityof, fit!
 export PoissonZeroInflated
-export MultivariateT, MultivariateTDiag
+export MvT, MvTDiag
+export AbstractGLM
 export GaussianGLM, BernoulliGLM, PoissonGLM, MultinomialGLM
 export MvGaussianGLM, MvBernoulliGLM, MvPoissonGLM
 export AbstractPrior, NoPrior, RidgePrior
@@ -39,10 +40,8 @@ export StimulusCodedDDM, CoherenceDDM
 export neglogprior, neglogprior_grad!, neglogprior_hess!
 
 # ACDC model selection
-export ACDCResult, StochasticDriverResult, ComponentDiscrepancy
-export stochastic_drivers, component_discrepancies
-export acdc_loss, acdc_select, get_critical_rho_values
-export compute_discrepancy
+export ACDCResult
+export component_discrepancies, acdc_select
 export KLDiscrepancy, KSDiscrepancy, WassersteinDiscrepancy
 export SquaredErrorDiscrepancy, MMDDiscrepancy
 

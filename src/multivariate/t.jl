@@ -1,5 +1,5 @@
 """
-    MultivariateT{T<:Real}
+    MvT{T<:Real}
 
 Multivariate Student's t-distribution with full covariance matrix.
 
@@ -9,7 +9,7 @@ Multivariate Student's t-distribution with full covariance matrix.
 - `ν::T`: Degrees of freedom (ν > 0)
 
 # Constructor
-    MultivariateT(μ, Σ, ν)
+    MvT(μ, Σ, ν)
 
 Create a multivariate t-distribution with location `μ`, scale matrix `Σ`,
 and degrees of freedom `ν`.
@@ -19,10 +19,10 @@ and degrees of freedom `ν`.
 μ = [0.0, 0.0]
 Σ = [1.0 0.5; 0.5 1.0]
 ν = 5.0
-dist = MultivariateT(μ, Σ, ν)
+dist = MvT(μ, Σ, ν)
 ```
 """
-mutable struct MultivariateT{T<:Real}
+mutable struct MvT{T<:Real}
     μ::Vector{T}
     Σ::Matrix{T}
     ν::T
@@ -32,7 +32,7 @@ mutable struct MultivariateT{T<:Real}
     logdetΣ::T
     dim::Int
 
-    function MultivariateT{T}(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real}
+    function MvT{T}(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real}
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
         dim = length(μ)
@@ -52,15 +52,15 @@ mutable struct MultivariateT{T<:Real}
     end
 end
 
-MultivariateT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real} = MultivariateT{T}(μ, Σ, ν)
+MvT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real} = MvT{T}(μ, Σ, ν)
 
-function MultivariateT(μ::Vector, Σ::Matrix, ν::Real)
+function MvT(μ::Vector, Σ::Matrix, ν::Real)
     T = promote_type(eltype(μ), eltype(Σ), typeof(ν))
-    return MultivariateT{T}(convert(Vector{T}, μ), convert(Matrix{T}, Σ), convert(T, ν))
+    return MvT{T}(convert(Vector{T}, μ), convert(Matrix{T}, Σ), convert(T, ν))
 end
 
 """
-    MultivariateTDiag{T<:Real}
+    MvTDiag{T<:Real}
 
 Multivariate Student's t-distribution with diagonal covariance matrix.
 
@@ -70,7 +70,7 @@ Multivariate Student's t-distribution with diagonal covariance matrix.
 - `ν::T`: Degrees of freedom (ν > 0)
 
 # Constructor
-    MultivariateTDiag(μ, σ², ν)
+    MvTDiag(μ, σ², ν)
 
 Create a multivariate t-distribution with location `μ`, diagonal variances `σ²`,
 and degrees of freedom `ν`.
@@ -80,10 +80,10 @@ and degrees of freedom `ν`.
 μ = [0.0, 0.0]
 σ² = [1.0, 2.0]
 ν = 5.0
-dist = MultivariateTDiag(μ, σ², ν)
+dist = MvTDiag(μ, σ², ν)
 ```
 """
-mutable struct MultivariateTDiag{T<:Real}
+mutable struct MvTDiag{T<:Real}
     μ::Vector{T}
     σ²::Vector{T}
     ν::T
@@ -92,7 +92,7 @@ mutable struct MultivariateTDiag{T<:Real}
     logdetΣ::T
     dim::Int
 
-    function MultivariateTDiag{T}(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
+    function MvTDiag{T}(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
         ν > 0 || throw(ArgumentError("ν must be positive, got $ν"))
 
         dim = length(μ)
@@ -112,20 +112,18 @@ mutable struct MultivariateTDiag{T<:Real}
     end
 end
 
-function MultivariateTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
-    return MultivariateTDiag{T}(μ, σ², ν)
+function MvTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
+    return MvTDiag{T}(μ, σ², ν)
 end
 
-function MultivariateTDiag(μ::Vector, σ²::Vector, ν::Real)
+function MvTDiag(μ::Vector, σ²::Vector, ν::Real)
     T = promote_type(eltype(μ), eltype(σ²), typeof(ν))
-    return MultivariateTDiag{T}(
-        convert(Vector{T}, μ), convert(Vector{T}, σ²), convert(T, ν)
-    )
+    return MvTDiag{T}(convert(Vector{T}, μ), convert(Vector{T}, σ²), convert(T, ν))
 end
 
 # DensityInterface implementation
-DensityInterface.DensityKind(::MultivariateT) = DensityInterface.HasDensity()
-DensityInterface.DensityKind(::MultivariateTDiag) = DensityInterface.HasDensity()
+DensityInterface.DensityKind(::MvT) = DensityInterface.HasDensity()
+DensityInterface.DensityKind(::MvTDiag) = DensityInterface.HasDensity()
 
 #= Log density of a multivariate Student-t given the precomputed Mahalanobis²
    `mahal² = (x-μ)ᵀ Σ⁻¹ (x-μ)`. The full-covariance and diagonal variants differ
@@ -143,14 +141,14 @@ function _t_logpdf(ν, d, logdetΣ, mahal²)
 end
 
 """
-    logdensityof(dist::MultivariateT, x::AbstractVector)
+    logdensityof(dist::MvT, x::AbstractVector)
 
 Compute the log probability density of the multivariate t-distribution at `x`.
 
 Allocates one vector (the residual). The triangular solve is performed in-place
 on that vector to avoid a second allocation.
 """
-function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
+function DensityInterface.logdensityof(dist::MvT, x::AbstractVector)
     length(x) == dist.dim ||
         throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
@@ -168,13 +166,13 @@ function DensityInterface.logdensityof(dist::MultivariateT, x::AbstractVector)
 end
 
 """
-    logdensityof(dist::MultivariateTDiag, x::AbstractVector)
+    logdensityof(dist::MvTDiag, x::AbstractVector)
 
 Compute the log probability density of the diagonal multivariate t-distribution at `x`.
 
 Zero allocations: Mahalanobis distance is accumulated element-wise inline.
 """
-function DensityInterface.logdensityof(dist::MultivariateTDiag, x::AbstractVector)
+function DensityInterface.logdensityof(dist::MvTDiag, x::AbstractVector)
     length(x) == dist.dim ||
         throw(DimensionMismatch("x must have length $(dist.dim), got $(length(x))"))
 
@@ -186,25 +184,25 @@ end
 
 # Random sampling
 """
-    rand([rng], dist::MultivariateT)
+    rand([rng], dist::MvT)
 
 Generate a random sample from the multivariate t-distribution.
 
 Uses the representation: X = μ + √(ν/U) × Z
 where Z ~ N(0, Σ) and U ~ χ²(ν) are independent.
 """
-function Random.rand(rng::AbstractRNG, dist::MultivariateT{T}) where {T<:Real}
+function Random.rand(rng::AbstractRNG, dist::MvT{T}) where {T<:Real}
     return rand!(rng, dist, Vector{T}(undef, dist.dim))
 end
 
 """
-    rand!(rng, dist::MultivariateT, out)
+    rand!(rng, dist::MvT, out)
 
 In-place sample into `out` (length `dim`). Zero allocation, thread-safe: draw
 `z ~ N(0, I)` directly into `out`, multiply by the Cholesky factor in place
 (`lmul!`), then scale by √(ν/u) and shift by μ element-wise.
 """
-function Random.rand!(rng::AbstractRNG, dist::MultivariateT, out::AbstractVector)
+function Random.rand!(rng::AbstractRNG, dist::MvT, out::AbstractVector)
     length(out) == dist.dim ||
         throw(DimensionMismatch("out length $(length(out)) ≠ dim $(dist.dim)"))
 
@@ -219,20 +217,20 @@ function Random.rand!(rng::AbstractRNG, dist::MultivariateT, out::AbstractVector
 end
 
 """
-    rand([rng], dist::MultivariateTDiag)
+    rand([rng], dist::MvTDiag)
 
 Generate a random sample from the diagonal multivariate t-distribution.
 """
-function Random.rand(rng::AbstractRNG, dist::MultivariateTDiag{T}) where {T<:Real}
+function Random.rand(rng::AbstractRNG, dist::MvTDiag{T}) where {T<:Real}
     return rand!(rng, dist, Vector{T}(undef, dist.dim))
 end
 
 """
-    rand!(rng, dist::MultivariateTDiag, out)
+    rand!(rng, dist::MvTDiag, out)
 
 In-place sample into `out` (length `dim`). Zero allocation, thread-safe.
 """
-function Random.rand!(rng::AbstractRNG, dist::MultivariateTDiag, out::AbstractVector)
+function Random.rand!(rng::AbstractRNG, dist::MvTDiag, out::AbstractVector)
     length(out) == dist.dim ||
         throw(DimensionMismatch("out length $(length(out)) ≠ dim $(dist.dim)"))
 
@@ -248,16 +246,14 @@ end
 #= Array forms (`rand(dist, n)` etc.) go through Random's sampler machinery,
    which needs the sample eltype and a method on the default trivial sampler.
    Samples are length-`dim` vectors, matching the obs_seq convention. =#
-Base.eltype(::Type{MultivariateT{T}}) where {T<:Real} = Vector{T}
-Base.eltype(::Type{MultivariateTDiag{T}}) where {T<:Real} = Vector{T}
-function Random.rand(
-    rng::AbstractRNG, sp::Random.SamplerTrivial{<:Union{MultivariateT,MultivariateTDiag}}
-)
+Base.eltype(::Type{MvT{T}}) where {T<:Real} = Vector{T}
+Base.eltype(::Type{MvTDiag{T}}) where {T<:Real} = Vector{T}
+function Random.rand(rng::AbstractRNG, sp::Random.SamplerTrivial{<:Union{MvT,MvTDiag}})
     return rand(rng, sp[])
 end
 
-#= ECME degrees-of-freedom update, shared by the `MultivariateT` and
-   `MultivariateTDiag` fits. The ν M-step solves the stationarity condition
+#= ECME degrees-of-freedom update, shared by the `MvT` and
+   `MvTDiag` fits. The ν M-step solves the stationarity condition
 
        f(ν) = -ψ(ν/2) + log(ν/2) + 1 + C + ψ((ν+d)/2) - log((ν+d)/2) = 0,
 
@@ -306,8 +302,8 @@ end
    differ only in how the scale parameter (Σ matrix or σ² vector) is stored and
    updated; these hooks isolate those differences so the EM scaffold below can be
    written once. =#
-_scale_current(dist::MultivariateT) = dist.Σ
-_scale_current(dist::MultivariateTDiag) = dist.σ²
+_scale_current(dist::MvT) = dist.Σ
+_scale_current(dist::MvTDiag) = dist.σ²
 
 _scale_snapshot(dist) = copy(_scale_current(dist))
 _scale_snapshot!(buf, dist) = copyto!(buf, _scale_current(dist))
@@ -323,21 +319,21 @@ end
 #= Per-call EM scratch, allocated once per `fit!` and threaded through the hooks
    so the distribution structs carry no mutable state: `fit!` on distinct dists
    and concurrent `logdensityof`/`rand` on a shared dist are then all thread-safe. =#
-function _em_workspace(dist::MultivariateT)
+function _em_workspace(dist::MvT)
     T = eltype(dist.μ)
     d = dist.dim
     return (scatter=zeros(T, d, d), diff=Vector{T}(undef, d), z=Vector{T}(undef, d))
 end
-_em_workspace(dist::MultivariateTDiag) = (scatter=zeros(eltype(dist.μ), dist.dim),)
+_em_workspace(dist::MvTDiag) = (scatter=zeros(eltype(dist.μ), dist.dim),)
 
 #= E-step Mahalanobis² for one observation. The full-covariance variant uses the
    workspace residual buffers; the diagonal variant needs none (ws is ignored). =#
-function _mahalanobis²!(dist::MultivariateT, ws, obs_i)
+function _mahalanobis²!(dist::MvT, ws, obs_i)
     ws.diff .= obs_i .- dist.μ
     ldiv!(ws.z, dist.Σ_chol.L, ws.diff)
     return sum(abs2, ws.z)
 end
-function _mahalanobis²!(dist::MultivariateTDiag, ws, obs_i)
+function _mahalanobis²!(dist::MvTDiag, ws, obs_i)
     mahal² = zero(eltype(dist.μ))
     for j in 1:(dist.dim)
         δ = obs_i[j] - dist.μ[j]
@@ -364,9 +360,7 @@ end
 
 #= Scale M-step: recompute the scale from residuals against the updated μ,
    weighted by wᵢ·pwᵢ / Σw, then refresh the cached `logdetΣ` (and Cholesky). =#
-function _scatter_mstep!(
-    dist::MultivariateT, ws, obs_seq, weight_seq, posterior_weights, weight_sum
-)
+function _scatter_mstep!(dist::MvT, ws, obs_seq, weight_seq, posterior_weights, weight_sum)
     T = eltype(dist.μ)
     d = dist.dim
     Σ_acc = ws.scatter
@@ -400,7 +394,7 @@ function _scatter_mstep!(
     return dist
 end
 function _scatter_mstep!(
-    dist::MultivariateTDiag, ws, obs_seq, weight_seq, posterior_weights, weight_sum
+    dist::MvTDiag, ws, obs_seq, weight_seq, posterior_weights, weight_sum
 )
     T = eltype(dist.μ)
     d = dist.dim
@@ -425,8 +419,8 @@ function _scatter_mstep!(
 end
 
 """
-    fit!(dist::MultivariateT,     obs_seq, weight_seq; kwargs...)
-    fit!(dist::MultivariateTDiag, obs_seq, weight_seq; kwargs...)
+    fit!(dist::MvT,     obs_seq, weight_seq; kwargs...)
+    fit!(dist::MvTDiag, obs_seq, weight_seq; kwargs...)
 
 Fit a multivariate Student-t emission to weighted observations by EM (ECME), in
 place. A single driver serves both the full-covariance and diagonal variants;
@@ -452,7 +446,7 @@ Liu, C., & Rubin, D. B. (1995). ML estimation of the t distribution using EM
 and its extensions, ECM and ECME. Statistica Sinica, 19-39.
 """
 function StatsAPI.fit!(
-    dist::Union{MultivariateT,MultivariateTDiag},
+    dist::Union{MvT,MvTDiag},
     obs_seq,
     weight_seq;
     max_iter::Int=100,

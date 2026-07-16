@@ -38,9 +38,9 @@ function _create_emissions(
 end
 
 function _create_emissions(
-    ::Type{MultivariateT}, n_states, rng; dim=2, ν_range=(3.0, 10.0), kwargs...
+    ::Type{MvT}, n_states, rng; dim=2, ν_range=(3.0, 10.0), kwargs...
 )
-    emissions = Vector{MultivariateT}(undef, n_states)
+    emissions = Vector{MvT}(undef, n_states)
     for i in 1:n_states
         μ = randn(rng, dim) .* 2.0
 
@@ -50,13 +50,13 @@ function _create_emissions(
 
         ν = rand(rng) * (ν_range[2] - ν_range[1]) + ν_range[1]
 
-        emissions[i] = MultivariateT(μ, Σ, ν)
+        emissions[i] = MvT(μ, Σ, ν)
     end
     return emissions
 end
 
 function _create_emissions(
-    ::Type{MultivariateTDiag},
+    ::Type{MvTDiag},
     n_states,
     rng;
     dim=2,
@@ -64,13 +64,13 @@ function _create_emissions(
     σ²_range=(0.5, 2.0),
     kwargs...,
 )
-    emissions = Vector{MultivariateTDiag}(undef, n_states)
+    emissions = Vector{MvTDiag}(undef, n_states)
     for i in 1:n_states
         μ = randn(rng, dim) .* 2.0
         σ² = rand(rng, dim) .* (σ²_range[2] - σ²_range[1]) .+ σ²_range[1]
         ν = rand(rng) * (ν_range[2] - ν_range[1]) + ν_range[1]
 
-        emissions[i] = MultivariateTDiag(μ, σ², ν)
+        emissions[i] = MvTDiag(μ, σ², ν)
     end
     return emissions
 end

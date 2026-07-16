@@ -11,7 +11,7 @@ using SequentialSamplingModels   # activates the extension
 
 ## Observations and controls
 
-An observation is a `(choice, rt)` pair (a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand`), with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift.
+An observation is a `(choice, rt)` pair (a plain tuple or the `(; choice, rt)` `NamedTuple` returned by `rand`), with `choice ∈ {1, 2}` for the upper/lower boundary (matching SequentialSamplingModels.jl) and `rt` in seconds. Each trial also carries a scalar control that sets its drift. 
 
 Both models are stimulus-coded: the boundaries mark stimulus/choice identity (e.g. right vs. left), not correct vs. error, so correctness is read off afterward from the trial condition. The starting point ``z`` is therefore a side bias rather than an accuracy bias. The [HSSM stimulus-coding tutorial](https://lnccbrown.github.io/HSSM/tutorials/tutorial_stim_coding/) walks through how this changes parameter interpretation relative to accuracy coding.
 
@@ -47,8 +47,8 @@ d = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.25)
 
 ```julia
 # obs_seq: vector of (choice, rt) pairs; stimulus_codes: per-trial controls;
-# w_seq: per-trial weights (posterior state probabilities inside EM)
-fit!(d, obs_seq, w_seq; control_seq=stimulus_codes, max_iter=100, gtol=1e-8)
+# weight_seq: per-trial weights (posterior state probabilities inside EM)
+fit!(d, obs_seq, weight_seq; control_seq=stimulus_codes, max_iter=100, gtol=1e-8)
 ```
 
 ## The DDM-HMM
