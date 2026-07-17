@@ -29,19 +29,19 @@ results = map(1:4) do K
 end
 [maximum(r.component_discrepancies) for r in results]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">4-element Vector{Float64}:
  0.1169421004082396
- 0.12981034885757342
- 0.023242101757975808
- 0.041526799460414265</code></pre><p>Underfitted models leave clearly non-uniform drivers, while the three-state model passes. <a href="../../acdc/#EmissionModels.acdc_select"><code>acdc_select</code></a> turns these scores into a choice: it minimizes the accumulated loss <span>$\sum_k \max(0, \hat{D}_k - \rho)$</span>, breaking ties in favor of fewer states (which is how an overfitted but well-calibrated four-state model loses to the three-state one).</p><pre><code class="language-julia hljs">K_selected = acdc_select(results, 0.1)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3</code></pre><p>The internal helper <code>EmissionModels.get_critical_rho_values</code> lists the cutoffs at which the selection changes, which is useful to check how sensitive the choice is to <span>$\rho$</span>.</p><pre><code class="language-julia hljs">EmissionModels.get_critical_rho_values(results)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">10-element Vector{Float64}:
- 0.018212728185186045
- 0.018803486952796322
- 0.01943609426978632
- 0.02094533124798703
- 0.023242101757975808
- 0.023916722945518276
- 0.038569070525025506
- 0.041526799460414265
+ 0.12981034885757298
+ 0.02324210175797603
+ 0.041526799460414376</code></pre><p>Underfitted models leave clearly non-uniform drivers, while the three-state model passes. <a href="../../acdc/#EmissionModels.acdc_select"><code>acdc_select</code></a> turns these scores into a choice: it minimizes the accumulated loss <span>$\sum_k \max(0, \hat{D}_k - \rho)$</span>, breaking ties in favor of fewer states (which is how an overfitted but well-calibrated four-state model loses to the three-state one).</p><pre><code class="language-julia hljs">K_selected = acdc_select(results, 0.1)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">3</code></pre><p>The internal helper <code>EmissionModels.get_critical_rho_values</code> lists the cutoffs at which the selection changes, which is useful to check how sensitive the choice is to <span>$\rho$</span>.</p><pre><code class="language-julia hljs">EmissionModels.get_critical_rho_values(results)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">10-element Vector{Float64}:
+ 0.018212728185186933
+ 0.018803486952795656
+ 0.019436094269786208
+ 0.02094533124798681
+ 0.02324210175797603
+ 0.023916722945519275
+ 0.03856907052502495
+ 0.041526799460414376
  0.1169421004082396
- 0.12981034885757342</code></pre><h2 id="Detecting-a-misspecified-emission"><a class="docs-heading-anchor" href="#Detecting-a-misspecified-emission">Detecting a misspecified emission</a><a id="Detecting-a-misspecified-emission-1"></a><a class="docs-heading-anchor-permalink" href="#Detecting-a-misspecified-emission" title="Permalink"></a></h2><p>Because ACDC scores each state separately, it also reveals <em>which</em> emission is wrong, even when the number of states is correct. Let us generate zero-inflated counts and compare a plain Poisson fit against a zero-inflated one.</p><pre><code class="language-julia hljs">hmm_zi = HMM(
+ 0.12981034885757298</code></pre><h2 id="Detecting-a-misspecified-emission"><a class="docs-heading-anchor" href="#Detecting-a-misspecified-emission">Detecting a misspecified emission</a><a id="Detecting-a-misspecified-emission-1"></a><a class="docs-heading-anchor-permalink" href="#Detecting-a-misspecified-emission" title="Permalink"></a></h2><p>Because ACDC scores each state separately, it also reveals <em>which</em> emission is wrong, even when the number of states is correct. Let us generate zero-inflated counts and compare a plain Poisson fit against a zero-inflated one.</p><pre><code class="language-julia hljs">hmm_zi = HMM(
     [0.5, 0.5],
     [0.95 0.05; 0.05 0.95],
     [PoissonZeroInflated(3.0, 0.4), PoissonZeroInflated(12.0, 0.4)],
@@ -50,8 +50,8 @@ _, obs_zi = rand(rng, hmm_zi, 2000);</code></pre><p>First, a two-state HMM with 
 hmm_pois, _ = baum_welch(guess_pois, obs_zi)
 res_pois = component_discrepancies(hmm_pois, obs_zi, KSDiscrepancy(); rng=rng)
 res_pois.component_discrepancies</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">2-element Vector{Float64}:
- 0.24277062472867444
- 0.14343865644624015</code></pre><p>Then the correctly specified zero-inflated model.</p><pre><code class="language-julia hljs">guess_zi = HMM(
+ 0.24277062472867422
+ 0.14343865644623952</code></pre><p>Then the correctly specified zero-inflated model.</p><pre><code class="language-julia hljs">guess_zi = HMM(
     [0.5, 0.5],
     [0.9 0.1; 0.1 0.9],
     [PoissonZeroInflated(2.0, 0.3), PoissonZeroInflated(8.0, 0.3)],
@@ -59,5 +59,5 @@ res_pois.component_discrepancies</code></pre><pre class="documenter-example-outp
 hmm_zi_est, _ = baum_welch(guess_zi, obs_zi)
 res_zi = component_discrepancies(hmm_zi_est, obs_zi, KSDiscrepancy(); rng=rng)
 res_zi.component_discrepancies</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">2-element Vector{Float64}:
- 0.022230689224182643
- 0.030657747368642352</code></pre><p>The misspecified Poisson states are flagged with large discrepancies, while the zero-inflated fit passes.</p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ddm/">« The DDM-HMM</a><a class="docs-footer-nextpage" href="../../distributions/">Distributions »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 17 July 2026 00:12">Friday 17 July 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+ 0.02223068922418256
+ 0.03065774736864202</code></pre><p>The misspecified Poisson states are flagged with large discrepancies, while the zero-inflated fit passes.</p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../ddm/">« The DDM-HMM</a><a class="docs-footer-nextpage" href="../../distributions/">Distributions »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 17 July 2026 00:18">Friday 17 July 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
