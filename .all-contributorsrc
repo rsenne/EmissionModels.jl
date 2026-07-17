@@ -26,6 +26,18 @@
         "ideas",
         "review"
       ]
+    },
+    {
+      "login": "nguyenston",
+      "name": "Nguyen Nguyen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/35545554?v=4",
+      "profile": "https://github.com/nguyenston",
+      "contributions": [
+        "code",
+        "ideas",
+        "review",
+        "test"
+      ]
     }
   ]
 }
