@@ -26,6 +26,15 @@
         "ideas",
         "review"
       ]
+    },
+    {
+      "login": "itsdfish",
+      "name": "dfish",
+      "avatar_url": "https://avatars.githubusercontent.com/u/9677184?v=4",
+      "profile": "https://github.com/itsdfish",
+      "contributions": [
+        "review"
+      ]
     }
   ]
 }
