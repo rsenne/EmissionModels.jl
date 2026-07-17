@@ -71,6 +71,15 @@ glm = GaussianGLM(β, 1.0, RidgePrior(0.5))  # L2 regularization
 
 Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (design matrix `X`) maps latent states to the regression covariates. Since the GLMs subtype `ControlledEmission`, a vector of them also works directly as the emissions of a `ControlledEmissionHMM`.
 
+### DDM emissions (two-alternative forced choice)
+
+| Type | Description |
+|------|-------------|
+| `StimulusCodedDDM(; ν, α, z, τ)` | Drift diffusion model whose drift sign follows the per-trial stimulus code. |
+| `CoherenceDDM(; k, γ, α, z, τ)` | Drift diffusion model whose drift is a power law of signed stimulus coherence. |
+
+Both emit `(choice, rt)` pairs and subtype `ControlledEmission`, so a vector of them forms a `ControlledEmissionHMM` — the DDM-HMM, where hidden states are decision-making regimes. The Wiener first-passage-time density and sampler come from [SequentialSamplingModels.jl](https://github.com/itsdfish/SequentialSamplingModels.jl), a weak dependency: the types always construct, but `logdensityof`, `rand`, and `fit!` need `using SequentialSamplingModels` to activate the extension.
+
 ## ACDC model selection
 
 The Accumulated Cutoff Discrepancy Criterion (ACDC) picks the number of hidden states without penalizing likelihood by parameter count. It inverts each fitted emission through the probability integral transform to recover per-state "stochastic drivers", which are uniform when the model is well specified, and selects the smallest state count whose per-state discrepancies from uniform all fall below a cutoff.
