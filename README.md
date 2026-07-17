@@ -26,10 +26,14 @@ using HiddenMarkovModels
 # Create an emission model
 dist = PoissonZeroInflated(5.0, 0.3)
 
-# Sample, evaluate densities, or fit to data
+# Sample and evaluate densities
 x = rand(dist)
 logp = logdensityof(dist, x)
-fit!(dist, observations, weight_seq)
+
+# Fit to weighted observations (weights are HMM posterior state probabilities)
+obs_seq = [rand(dist) for _ in 1:100]
+weight_seq = ones(100)
+fit!(dist, obs_seq, weight_seq)
 ```
 
 ## Distribution models
@@ -149,4 +153,4 @@ This project follows the [all-contributors](https://github.com/all-contributors/
 
 ## License
 
-EmissionModels.jl is licensed under the terms of the `LICENSE` file.
+EmissionModels.jl is released under the [MIT License](LICENSE).

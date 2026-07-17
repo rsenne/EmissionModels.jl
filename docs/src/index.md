@@ -30,7 +30,8 @@ trans = [0.8 0.2; 0.3 0.7]
 emissions = [PoissonZeroInflated(5.0, 0.3), PoissonZeroInflated(20.0, 0.1)]
 hmm = HMM(init, trans, emissions)
 
-# Fit with Baum-Welch
+# Simulate a sequence, then fit with Baum-Welch
+_, obs_seq = rand(hmm, 500)
 hmm_est, loglik_trace = baum_welch(hmm, obs_seq)
 ```
 
