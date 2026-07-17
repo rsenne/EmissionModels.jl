@@ -65,6 +65,13 @@ function neglogprior_grad! end
 Accumulate (`+=`) the Hessian of the negative log-prior `∂²(-log p(β))/∂β²` into
 `H`. Accumulates rather than overwrites so multiple priors compose additively.
 See [`neglogprior`](@ref).
+
+!!! note "Closed-form Gaussian GLM"
+    The `GaussianGLM`/`MvGaussianGLM` fits add the prior curvature directly to the
+    normal-equations matrix `XᵀWX` and pass a placeholder `β`. A prior usable on
+    that closed-form path must therefore have a `β`-independent Hessian sized by
+    `H` alone (as `RidgePrior` does). Priors whose Hessian depends on `β` still
+    work with the Newton-based GLMs, which pass the live coefficients.
 """
 function neglogprior_hess! end
 
@@ -99,8 +106,11 @@ function neglogprior_grad!(p::RidgePrior, g, β)
     end
 end
 
+#= Size the λI curvature by the Hessian itself, not `β`, so the closed-form
+   Gaussian GLM path can add ridge to XᵀWX without depending on the value or
+   length of the `β` argument it passes. =#
 function neglogprior_hess!(p::RidgePrior, H, β)
-    for i in eachindex(β)
+    for i in axes(H, 1)
         H[i, i] += p.λ
     end
 end
@@ -227,10 +237,9 @@ function StatsAPI.fit!(
         r_i = T(obs_seq[i]) - dot(reg.β, x_i)
         sw_r2 += T(weight_seq[i]) * r_i * r_i
     end
-    #= Type-aware variance floor (same floor as the diagonal-t M-step): a
-       perfect fit (e.g. n ≤ p) would otherwise set σ2 = 0, breaking the
-       σ2 > 0 invariant and turning every later logdensityof into NaN. =#
-    reg.σ2 = max(sw_r2 / wsum, sqrt(eps(T)))
+    # Type-aware variance floor shared with the diagonal-t M-step (see
+    # `_variance_floor`): a perfect fit (e.g. n ≤ p) would otherwise set σ2 = 0.
+    reg.σ2 = max(sw_r2 / wsum, _variance_floor(T))
 
     return reg
 end
@@ -254,96 +263,95 @@ Base.size(c::_ColumnElementView) = (length(c.seq),)
 Base.IndexStyle(::Type{<:_ColumnElementView}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(c::_ColumnElementView, i::Integer) = c.seq[i][c.j]
 
-#= Fused Bernoulli negative log-posterior in the `fgh!(F, G, H, β)` form that
-   `Optim.only_fgh!` expects. `F`, `G`, `H` are `nothing` when Optim doesn't
-   need that piece on a given call; each nothing/array combination gets its own
-   JIT specialization, so skipped work is compiled away. =#
-struct _BernoulliFGH{
-    Y<:AbstractVector,W<:AbstractVector{<:Real},M<:AbstractMatrix{<:Real},P<:AbstractPrior
-}
-    y::Y
-    w::W
-    X::M
-    prior::P
-end
-
-function (o::_BernoulliFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
-    n, p = size(o.X)
-    G === nothing || fill!(G, zero(T))
-    H === nothing || fill!(H, zero(T))
-    nll = zero(T)
-    for i in 1:n
-        x_i = view(o.X, i, :)
-        wi = T(o.w[i])
-        η_i = dot(β, x_i)
-        y_i = o.y[i]
-        if F !== nothing
-            nll += wi * (y_i == 1 ? log1pexp(-η_i) : log1pexp(η_i))
-        end
-        if G !== nothing || H !== nothing
-            μ_i = logistic(η_i)
-            r_i = wi * (μ_i - T(y_i))
-            W_i = wi * μ_i * (one(T) - μ_i)
-            for a in 1:p
-                xa = x_i[a]
-                G === nothing || (G[a] += r_i * xa)
-                if H !== nothing
-                    wxa = W_i * xa
-                    # Symmetric H: accumulate the lower triangle only,
-                    # mirrored after the data pass.
-                    for b in a:p
-                        H[b, a] += wxa * x_i[b]
-                    end
-                end
-            end
-        end
-    end
-    if H !== nothing
-        # Optim's Newton reads the full matrix — mirror the lower triangle.
-        for a in 1:p, b in (a + 1):p
-            H[a, b] = H[b, a]
-        end
-    end
-    G === nothing || neglogprior_grad!(o.prior, G, β)
-    H === nothing || neglogprior_hess!(o.prior, H, β)
-    F === nothing || return nll + neglogprior(o.prior, β)
-    return nothing
-end
-
 #= Bound η so that exp(η) stays well below floatmax(T), with a few nats of
    headroom for the w·exp(η) products that accumulate downstream. Type-aware:
    about 707 for Float64, 86 for Float32. =#
 @inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
 
-#= Fused Poisson negative log-posterior, same `fgh!(F, G, H, β)` contract as
-   `_BernoulliFGH`. =#
-struct _PoissonFGH{
-    Y<:AbstractVector,W<:AbstractVector{<:Real},M<:AbstractMatrix{<:Real},P<:AbstractPrior
+#= Linear predictor η_j = Σ_r B[r,j]·x[r] for output column `j`, accumulated in
+   type `Tη`. Factors out the inner loop repeated across every multivariate /
+   multinomial `logdensityof`/`rand`/`rand!`; kept `@inline` so those hot paths
+   stay allocation-free. =#
+@inline function _eta_col(
+    ::Type{Tη}, B::AbstractMatrix, x::AbstractVector, j::Integer, p::Integer
+) where {Tη}
+    η = zero(Tη)
+    for r in 1:p
+        η += B[r, j] * x[r]
+    end
+    return η
+end
+
+#= Exponential-family traits for the Newton GLM fits. Each family supplies the
+   pieces the fused `fgh!` needs, so Bernoulli and Poisson share one functor:
+   - `_bound_η`: clamp the linear predictor (Poisson, to keep exp finite) or
+     pass it through (Bernoulli);
+   - `_link`: the mean response (μ = logistic(η) or eη = exp(η)), the single
+     transcendental evaluated once per observation;
+   - `_nll_term`: the per-observation negative log-likelihood (Bernoulli uses
+     `log1pexp(±η)` for stability rather than `log(μ)`);
+   - `_grad_hess_terms`: the IRLS working residual `r` and weight `W`, both
+     derived from the already-computed `link`. =#
+abstract type _GLMFamily end
+struct _BernoulliFamily <: _GLMFamily end
+struct _PoissonFamily <: _GLMFamily end
+
+@inline _bound_η(::_BernoulliFamily, η, ::Type{T}) where {T<:Real} = η
+@inline function _bound_η(::_PoissonFamily, η, ::Type{T}) where {T<:Real}
+    b = _η_bound(T)
+    return clamp(η, -b, b)
+end
+
+@inline _link(::_BernoulliFamily, η) = logistic(η)
+@inline _link(::_PoissonFamily, η) = exp(η)
+
+@inline _nll_term(::_BernoulliFamily, η, link, y, ::Type{T}) where {T<:Real} =
+    y == 1 ? log1pexp(-η) : log1pexp(η)
+@inline _nll_term(::_PoissonFamily, η, link, y, ::Type{T}) where {T<:Real} = link - T(y) * η
+
+@inline _grad_hess_terms(::_BernoulliFamily, link, y, ::Type{T}) where {T<:Real} =
+    (link - T(y), link * (one(T) - link))
+@inline _grad_hess_terms(::_PoissonFamily, link, y, ::Type{T}) where {T<:Real} =
+    (link - T(y), link)
+
+#= Fused exponential-family negative log-posterior in the `fgh!(F, G, H, β)` form
+   that `Optim.only_fgh!` expects. `F`, `G`, `H` are `nothing` when Optim doesn't
+   need that piece on a given call; each nothing/array combination gets its own
+   JIT specialization, so skipped work is compiled away. `Fam` selects the family
+   (Bernoulli/Poisson) at compile time, so the family branches are all resolved. =#
+struct _GLMFGH{
+    Fam<:_GLMFamily,
+    Y<:AbstractVector,
+    W<:AbstractVector{<:Real},
+    M<:AbstractMatrix{<:Real},
+    P<:AbstractPrior,
 }
+    family::Fam
     y::Y
     w::W
     X::M
     prior::P
 end
 
-function (o::_PoissonFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
+function (o::_GLMFGH)(F, G, H, β::AbstractVector{T}) where {T<:Real}
     n, p = size(o.X)
+    fam = o.family
     G === nothing || fill!(G, zero(T))
     H === nothing || fill!(H, zero(T))
     nll = zero(T)
-    η_max = _η_bound(T)
     for i in 1:n
         x_i = view(o.X, i, :)
         wi = T(o.w[i])
-        η_i = clamp(dot(β, x_i), -η_max, η_max)
-        eη = exp(η_i)
-        y_i = T(o.y[i])
+        η_i = _bound_η(fam, dot(β, x_i), T)
+        y_i = o.y[i]
+        link = _link(fam, η_i)   # one transcendental per obs, reused below
         if F !== nothing
-            nll += wi * (eη - y_i * η_i)
+            nll += wi * _nll_term(fam, η_i, link, y_i, T)
         end
         if G !== nothing || H !== nothing
-            r_i = wi * (eη - y_i)
-            W_i = wi * eη
+            r, Wt = _grad_hess_terms(fam, link, y_i, T)
+            r_i = wi * r
+            W_i = wi * Wt
             for a in 1:p
                 xa = x_i[a]
                 G === nothing || (G[a] += r_i * xa)
@@ -378,10 +386,11 @@ function _newton_fit!(β::Vector{T}, fgh::F; max_iter::Int, gtol::Real) where {T
 end
 
 #= Shared validation + Newton driver for the univariate `BernoulliGLM.fit!` /
-   `PoissonGLM.fit!`. `FGH` is the family's fused functor type (`_BernoulliFGH`
-   or `_PoissonFGH`); the two fits are otherwise identical. =#
+   `PoissonGLM.fit!`. `family` is the exponential-family trait (`_BernoulliFamily`
+   or `_PoissonFamily`) that specializes the shared `_GLMFGH` functor; the two
+   fits are otherwise identical. =#
 function _fit_glm_newton!(
-    FGH::Type,
+    family::_GLMFamily,
     β::Vector{T},
     obs_seq::AbstractVector,
     weight_seq::AbstractVector{<:Real},
@@ -399,7 +408,7 @@ function _fit_glm_newton!(
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
 
-    fgh = FGH(obs_seq, weight_seq, control_seq, prior)
+    fgh = _GLMFGH(family, obs_seq, weight_seq, control_seq, prior)
     return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
 end
 
@@ -488,7 +497,7 @@ function StatsAPI.fit!(
     gtol::Real=1e-8,
 )
     _fit_glm_newton!(
-        _BernoulliFGH,
+        _BernoulliFamily(),
         glm.β,
         obs_seq,
         weight_seq,
@@ -575,7 +584,7 @@ function StatsAPI.fit!(
     gtol::Real=1e-8,
 )
     _fit_glm_newton!(
-        _PoissonFGH,
+        _PoissonFamily(),
         glm.β,
         obs_seq,
         weight_seq,
@@ -744,11 +753,7 @@ function Random.rand!(
 
     # out += μ = Bᵀ x (Bᵀx is computed inline; no aliasing with out)
     for j in 1:k
-        sj = zero(T)
-        for r in 1:p
-            sj += glm.B[r, j] * control_seq[r]
-        end
-        out[j] += sj
+        out[j] += _eta_col(T, glm.B, control_seq, j, p)
     end
     return out
 end
@@ -808,7 +813,8 @@ function StatsAPI.fit!(
 
     #= Per-column ridge: λI added to XᵀWX gives B = (XᵀWX + λI) \ XᵀWY,
        the joint MAP for independent N(0, (1/λ)I) priors on each column of B.
-       Pass a length-p view so RidgePrior loops over rows of XWX, not p*k. =#
+       The curvature is sized by XWX itself (see the `neglogprior_hess!`),
+       so the β argument is an unread placeholder here. =#
     neglogprior_hess!(glm.prior, XWX, view(glm.B, :, 1))
 
     #= XᵀWX is PD whenever the (weighted) design matrix has full column rank.
@@ -933,10 +939,7 @@ function DensityInterface.logdensityof(
     for j in 1:(glm.out_dim)
         yj = y[j]
         (yj == 0 || yj == 1) || return Tη(-Inf)
-        η = zero(Tη)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(Tη, glm.B, control_seq, j, glm.in_dim)
         lp += yj == 1 ? -log1pexp(-η) : -log1pexp(η)
     end
     return lp
@@ -972,10 +975,7 @@ function Random.rand!(
 
     T = eltype(glm.B)
     for j in 1:(glm.out_dim)
-        η = zero(T)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
         out[j] = rand(rng) < logistic(η) ? 1 : 0
     end
     return out
@@ -1016,8 +1016,12 @@ function StatsAPI.fit!(
 
     β_buf = Vector{T}(undef, p)
     for j in 1:k
-        fgh = _BernoulliFGH(
-            _ColumnElementView(obs_seq, j), weight_seq, control_seq, glm.prior
+        fgh = _GLMFGH(
+            _BernoulliFamily(),
+            _ColumnElementView(obs_seq, j),
+            weight_seq,
+            control_seq,
+            glm.prior,
         )
         copyto!(β_buf, view(glm.B, :, j))
         _newton_fit!(β_buf, fgh; max_iter=max_iter, gtol=gtol)
@@ -1087,10 +1091,7 @@ function DensityInterface.logdensityof(
         yj = y[j]
         # Real-valued counts are fine; non-integer or negative ⇒ zero mass.
         (yj >= 0 && isinteger(yj)) || return Tη(-Inf)
-        η = zero(Tη)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(Tη, glm.B, control_seq, j, glm.in_dim)
         lp += Tη(yj) * η - exp(η) - Tη(loggamma(Tη(yj) + one(Tη)))
     end
     return lp
@@ -1125,10 +1126,7 @@ function Random.rand!(
 
     T = eltype(glm.B)
     for j in 1:(glm.out_dim)
-        η = zero(T)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
         out[j] = rand(rng, Poisson(exp(η)))
     end
     return out
@@ -1169,8 +1167,12 @@ function StatsAPI.fit!(
 
     β_buf = Vector{T}(undef, p)
     for j in 1:k
-        fgh = _PoissonFGH(
-            _ColumnElementView(obs_seq, j), weight_seq, control_seq, glm.prior
+        fgh = _GLMFGH(
+            _PoissonFamily(),
+            _ColumnElementView(obs_seq, j),
+            weight_seq,
+            control_seq,
+            glm.prior,
         )
         copyto!(β_buf, view(glm.B, :, j))
         _newton_fit!(β_buf, fgh; max_iter=max_iter, gtol=gtol)
@@ -1180,7 +1182,7 @@ function StatsAPI.fit!(
 end
 
 #= Fused multinomial-logistic negative log-posterior, same `fgh!(F, G, H, β)`
-   contract as `_BernoulliFGH`. Categories 1..k are the non-reference ones
+   contract as `_GLMFGH`. Categories 1..k are the non-reference ones
    (η_K = 0); β is the flattened p×k coefficient matrix in column-major order,
    so β[(j-1)p + a] = B[a, j]. `prob` is an owned length-k workspace reused
    across calls: it first holds the linear predictors η_j of the current
@@ -1378,10 +1380,7 @@ function DensityInterface.logdensityof(
     ydotη = zero(Tη)
     lgm = zero(Tη)
     for j in 1:(glm.out_dim - 1)
-        η = zero(Tη)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(Tη, glm.B, control_seq, j, glm.in_dim)
         lse = logaddexp(lse, η)
         yj = Int(y[j])
         if yj > 0
@@ -1414,10 +1413,7 @@ function DensityInterface.logdensityof(
     lse = zero(Tη)   # reference category contributes exp(0)
     η_k = zero(Tη)   # stays 0 when k is the reference
     for j in 1:(glm.out_dim - 1)
-        η = zero(Tη)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(Tη, glm.B, control_seq, j, glm.in_dim)
         lse = logaddexp(lse, η)
         j == k && (η_k = η)
     end
@@ -1459,10 +1455,7 @@ function Random.rand!(
 
     lse = zero(T)
     for j in 1:(K - 1)
-        η = zero(T)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
         lse = logaddexp(lse, η)
     end
 
@@ -1473,10 +1466,7 @@ function Random.rand!(
             out[j] = 0
             continue
         end
-        η = zero(T)
-        for r in 1:(glm.in_dim)
-            η += glm.B[r, j] * control_seq[r]
-        end
+        η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
         pj = exp(η - lse)
         # p_rem can undershoot 0 by rounding once most mass is spent.
         pc = p_rem > 0 ? clamp(pj / p_rem, zero(T), one(T)) : one(T)

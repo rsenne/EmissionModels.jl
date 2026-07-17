@@ -1,3 +1,10 @@
+#= Type-aware floor for variance/scale estimates (about 1.5e-8 at Float64,
+   scales with precision). Keeps σ²/σ2 strictly positive after an M-step that
+   would otherwise return exactly zero (e.g. a perfect fit with n ≤ p), which
+   would break the positivity invariant and turn later densities into NaN.
+   Shared by the diagonal-t M-step and the Gaussian GLM WLS fit. =#
+_variance_floor(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
+
 """
     MvT{T<:Real}
 
@@ -410,9 +417,7 @@ function _scatter_mstep!(
             σ²_acc[j] += wp * diff_j^2
         end
     end
-    #= Type-aware variance floor (about 1.5e-8 at Float64, scales with precision)
-       to keep σ² strictly positive without a hardcoded Float64 constant. =#
-    var_floor = sqrt(eps(T))
+    var_floor = _variance_floor(T)
     for j in 1:d
         dist.σ²[j] = max(σ²_acc[j], var_floor)
     end
