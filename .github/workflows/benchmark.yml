@@ -7,6 +7,12 @@ on:
 
 permissions:
   pull-requests: write
+  contents: read
+
+# Cancel a superseded benchmark run when new commits land on the same PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   bench:
