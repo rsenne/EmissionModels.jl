@@ -7,6 +7,9 @@
 [![Aqua](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 [![JET](https://img.shields.io/badge/%F0%9F%9B%A9%EF%B8%8F_tested_with-JET.jl-233f9a)](https://github.com/aviatesk/JET.jl)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/JuliaDiff/BlueStyle)
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 A Julia package providing emission models for [HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl). It supplies ready-to-use distributions that describe how observations are generated conditioned on the HMM's latent states.
 
@@ -68,6 +71,15 @@ glm = GaussianGLM(β, 1.0, RidgePrior(0.5))  # L2 regularization
 
 Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (design matrix `X`) maps latent states to the regression covariates. Since the GLMs subtype `ControlledEmission`, a vector of them also works directly as the emissions of a `ControlledEmissionHMM`.
 
+### DDM emissions (two-alternative forced choice)
+
+| Type | Description |
+|------|-------------|
+| `StimulusCodedDDM(; ν, α, z, τ)` | Drift diffusion model whose drift sign follows the per-trial stimulus code. |
+| `CoherenceDDM(; k, γ, α, z, τ)` | Drift diffusion model whose drift is a power law of signed stimulus coherence. |
+
+Both emit `(choice, rt)` pairs and subtype `ControlledEmission`, so a vector of them forms a `ControlledEmissionHMM` — the DDM-HMM, where hidden states are decision-making regimes. The Wiener first-passage-time density and sampler come from [SequentialSamplingModels.jl](https://github.com/itsdfish/SequentialSamplingModels.jl), a weak dependency: the types always construct, but `logdensityof`, `rand`, and `fit!` need `using SequentialSamplingModels` to activate the extension.
+
 ## ACDC model selection
 
 The Accumulated Cutoff Discrepancy Criterion (ACDC) picks the number of hidden states without penalizing likelihood by parameter count. It inverts each fitted emission through the probability integral transform to recover per-state "stochastic drivers", which are uniform when the model is well specified, and selects the smallest state count whose per-state discrepancies from uniform all fall below a cutoff.
@@ -110,6 +122,27 @@ Pkg.add(url="https://github.com/rsenne/EmissionModels.jl")
 ## Contributing
 
 Contributions are welcome. Please follow the [Julia Blue Style](https://github.com/JuliaDiff/BlueStyle) and add tests for new behavior. Pull requests and issues are appreciated.
+
+## Contributors
+
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/rsenne"><img src="https://avatars.githubusercontent.com/u/50930199?v=4?s=100" width="100px;" alt="Ryan Senne"/><br /><sub><b>Ryan Senne</b></sub></a><br /><a href="#maintenance-rsenne" title="Maintenance">🚧</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Code">💻</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Tests">⚠️</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Documentation">📖</a> <a href="#ideas-rsenne" title="Ideas, Planning, & Feedback">🤔</a> <a href="https://github.com/rsenne/EmissionModels.jl/pulls?q=is%3Apr+reviewed-by%3Arsenne" title="Reviewed Pull Requests">👀</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind are welcome!
 
 ## License
 

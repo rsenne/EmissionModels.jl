@@ -1,0 +1,31 @@
+{
+  "projectName": "EmissionModels.jl",
+  "projectOwner": "rsenne",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md",
+    "docs/src/index.md"
+  ],
+  "imageSize": 100,
+  "commit": true,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributorsPerLine": 7,
+  "contributors": [
+    {
+      "login": "rsenne",
+      "name": "Ryan Senne",
+      "avatar_url": "https://avatars.githubusercontent.com/u/50930199?v=4",
+      "profile": "https://github.com/rsenne",
+      "contributions": [
+        "maintenance",
+        "code",
+        "test",
+        "doc",
+        "ideas",
+        "review"
+      ]
+    }
+  ]
+}
