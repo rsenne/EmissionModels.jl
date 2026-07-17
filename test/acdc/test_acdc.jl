@@ -383,3 +383,87 @@ end
     ) < 0.1
     @test_throws ArgumentError WassersteinDiscrepancy(; n_projections=0)
 end
+
+@testset "acdc_select / get_critical_rho_values accept AbstractVector{<:ACDCResult}" begin
+    r2 = ACDCResult(2, [0.01, 0.02], [0.5, 0.5])
+    r3 = ACDCResult(3, [0.01, 0.02, 0.40], [0.4, 0.4, 0.2])
+
+    #= A hand-assembled result list is a Vector{ACDCResult} (abstract eltype);
+       the exported selectors must dispatch on it, not MethodError. =#
+    results = ACDCResult[r2, r3]
+    @test results isa Vector{ACDCResult}
+    @test acdc_select(results, 0.1) == 2
+    @test get_critical_rho_values(results) == sort(unique([0.01, 0.02, 0.40]))
+
+    # Empty inputs: acdc_select throws, get_critical_rho_values returns empty.
+    @test_throws ArgumentError acdc_select(ACDCResult[], 0.1)
+    @test isempty(get_critical_rho_values(ACDCResult[]))
+end
+
+@testset "StochasticDriverResult validates pool row dimension" begin
+    ok = StochasticDriverResult([rand(2, 5), rand(2, 3)], [0.5, 0.5])
+    @test length(ok.ε_pools) == 2
+
+    # Mismatched D across non-empty pools is rejected.
+    @test_throws ArgumentError StochasticDriverResult([rand(2, 5), rand(3, 3)], [0.5, 0.5])
+
+    # Empty pools (never-sampled components, stored as D×0) are ignored in the check.
+    @test StochasticDriverResult([rand(2, 5), Matrix{Float64}(undef, 2, 0)], [1.0, 0.0]) isa
+        StochasticDriverResult
+end
+
+@testset "stochastic_drivers validates control_seq length" begin
+    rng = Random.MersenneTwister(5)
+    hmm = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Normal(0.0, 1.0), Normal(5.0, 1.0)])
+    _, obs_seq = rand(rng, hmm, 100)
+    @test_throws DimensionMismatch stochastic_drivers(
+        hmm, obs_seq; control_seq=fill(nothing, 99)
+    )
+end
+
+@testset "KL discrepancy is type-generic (parametric Float32)" begin
+    rng = Random.MersenneTwister(8)
+    U32 = rand(rng, Float32, 2, 800)
+    #= A Float32-parametrized KL measure must return Float32: the k-NN estimator's
+       log_c_D no longer forces the estimate through Float64. =#
+    @test compute_discrepancy(KLDiscrepancy{Float32}(), U32) isa Float32
+    @test compute_discrepancy(KLDiscrepancy{Float32}(), U32) >= 0
+end
+
+@testset "Every measure runs through component_discrepancies(hmm, ...)" begin
+    rng = Random.MersenneTwister(14)
+    init = [0.5, 0.5]
+    trans = [0.95 0.05; 0.05 0.95]
+    hmm = HMM(init, trans, [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
+    _, obs_seq = rand(rng, hmm, 2500)
+    #= Previously only KSDiscrepancy exercised the HMM path end to end; run all
+       five measures through it. =#
+    for disc in (
+        KSDiscrepancy(),
+        KLDiscrepancy(),
+        WassersteinDiscrepancy(),
+        SquaredErrorDiscrepancy(),
+        MMDDiscrepancy(),
+    )
+        res = component_discrepancies(hmm, obs_seq, disc; rng=Random.MersenneTwister(3))
+        @test res.K == 2
+        @test all(isfinite, res.component_discrepancies)
+    end
+end
+
+@testset "Multi-segment seq_ends" begin
+    rng = Random.MersenneTwister(21)
+    init = [0.5, 0.5]
+    trans = [0.9 0.1; 0.1 0.9]
+    hmm = HMM(init, trans, [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
+    # Two independent sequences concatenated; seq_ends marks the boundary.
+    _, o1 = rand(rng, hmm, 1500)
+    _, o2 = rand(rng, hmm, 1500)
+    obs = vcat(o1, o2)
+    sd = stochastic_drivers(hmm, obs; seq_ends=(1500, 3000))
+    @test sum(size.(sd.ε_pools, 2)) == 3000
+    res = component_discrepancies(
+        hmm, obs, KSDiscrepancy(); seq_ends=(1500, 3000), rng=Random.MersenneTwister(1)
+    )
+    @test all(<(0.1), res.component_discrepancies)
+end

@@ -13,8 +13,9 @@ Robust model selection that measures component-level discrepancy via the
 
 If the model is correctly specified, the recovered drivers ``\\varepsilon_{n,k}``
 are uniform on ``[0,1]``. ACDC scores each component by how far its drivers
-deviate from uniformity, then selects the smallest component count whose
-per-component discrepancies all fall below a cutoff ``\\rho``.
+deviate from uniformity, then picks the component count minimizing the hinge
+loss ``R^\\rho(K) = \\sum_k \\max(0, \\hat{D}_k - \\rho)`` at cutoff ``\\rho``,
+breaking ties toward smaller `K` (see `acdc_loss`/`acdc_select`).
 
 This file holds the model-agnostic core: result types, discrepancy measures,
 and the loss/selection machinery. Model-specific recovery of the drivers is
@@ -49,6 +50,15 @@ struct StochasticDriverResult{T<:Real}
     ) where {T<:Real}
         K = length(ε_pools)
         length(usage) == K || throw(ArgumentError("usage must have length K=$(K)"))
+        #= All non-empty pools must share the driver dimension D (rows); a
+           mismatch would otherwise be silently mis-scored downstream. =#
+        nonempty = Iterators.filter(!isempty, ε_pools)
+        D = iterate(nonempty)
+        if D !== nothing
+            d1 = size(D[1], 1)
+            all(size(p, 1) == d1 for p in nonempty) ||
+                throw(ArgumentError("all non-empty ε_pools must share row dimension D"))
+        end
         return new{T}(ε_pools, usage)
     end
 end
@@ -419,12 +429,13 @@ function acdc_loss(result::ACDCResult{T}, ρ::Real) where {T<:Real}
 end
 
 """
-    acdc_select(results::Vector{ACDCResult}, ρ::Real) -> Int
+    acdc_select(results::AbstractVector{<:ACDCResult}, ρ::Real) -> Int
 
 Select the component count `K` with minimum ACDC loss at cutoff ``\\rho``,
 breaking ties toward smaller `K`. `results` must be ordered by `K`.
 """
-function acdc_select(results::Vector{ACDCResult{T}}, ρ::Real) where {T<:Real}
+function acdc_select(results::AbstractVector{<:ACDCResult}, ρ::Real)
+    isempty(results) && throw(ArgumentError("results must be non-empty"))
     losses = [acdc_loss(r, ρ) for r in results]
     #= `results` is ordered by K, so return the earliest entry whose loss ties
        the minimum (`≈` absorbs float noise in the hinge sums). =#
@@ -436,12 +447,14 @@ function acdc_select(results::Vector{ACDCResult{T}}, ρ::Real) where {T<:Real}
 end
 
 """
-    get_critical_rho_values(results::Vector{ACDCResult}) -> Vector
+    get_critical_rho_values(results::AbstractVector{<:ACDCResult}) -> Vector
 
 Sorted unique ``\\rho`` values at which the ACDC loss changes slope, i.e. the
 component discrepancy values across all `K`.
 """
-function get_critical_rho_values(results::Vector{ACDCResult{T}}) where {T<:Real}
+function get_critical_rho_values(results::AbstractVector{<:ACDCResult})
+    isempty(results) && return Float64[]
+    T = eltype(first(results).component_discrepancies)
     all_discs = T[]
     for r in results
         append!(all_discs, r.component_discrepancies)
@@ -458,7 +471,7 @@ function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) wher
     # k+1 neighbors because the nearest is the point itself.
     _, dists = knn(tree, samples, k + 1, true)
 
-    log_c_D = (D / 2) * log(T(π)) - loggamma(T(D) / 2 + 1)
+    log_c_D = (T(D) / 2) * log(T(π)) - loggamma(T(D) / 2 + 1)
     bias_correction = digamma(T(k)) - digamma(T(N))
 
     sum_log_p = zero(T)

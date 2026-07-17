@@ -31,6 +31,13 @@
    through the probit transform, which is ±Inf at the boundary. =#
 _clamp01(u::T) where {T<:Real} = clamp(u, eps(T), one(T) - eps(T))
 
+#= Randomized-PIT draw ε ~ U(lower, upper), typed on the bounds so a Float32 /
+   Dual pool stays in its element type instead of silently widening to Float64. =#
+function _randomized_pit(rng::AbstractRNG, lower::Real, upper::Real)
+    T = float(promote_type(typeof(lower), typeof(upper)))
+    return lower + rand(rng, T) * (upper - lower)
+end
+
 # Draw a category index from probability vector `p` (assumed to sum to ≈1).
 function _sample_categorical(rng::AbstractRNG, p::AbstractVector{T}) where {T<:Real}
     u = rand(rng, T)
@@ -51,11 +58,14 @@ function _emission_to_driver(::AbstractRNG, d::ContinuousUnivariateDistribution,
     return [_clamp01(float(cdf(d, obs)))]
 end
 
-# Discrete univariate: randomized PIT, ε ~ U(F(x⁻), F(x)).
+# Discrete univariate: randomized PIT, ε ~ U(F(x⁻), F(x)). `F(x⁻)` uses `cdf(d,
+# obs - 1)`, which assumes unit-spaced integer support (Poisson/Binomial/
+# Bernoulli); a distribution with a coarser support step would need its own
+# predecessor.
 function _emission_to_driver(rng::AbstractRNG, d::DiscreteUnivariateDistribution, obs::Real)
     upper = float(cdf(d, obs))
     lower = float(cdf(d, obs - 1))
-    return [_clamp01(lower + rand(rng) * (upper - lower))]
+    return [_clamp01(_randomized_pit(rng, lower, upper))]
 end
 
 #= Multivariate normal: Rosenblatt transform = whiten residual, then push each
@@ -75,7 +85,7 @@ function _emission_to_driver(rng::AbstractRNG, d::PoissonZeroInflated, obs::Real
     pois = Poisson(d.λ)
     upper = d.π + (1 - d.π) * cdf(pois, obs)
     lower = obs > 0 ? d.π + (1 - d.π) * cdf(pois, obs - 1) : zero(upper)
-    return [_clamp01(float(lower + rand(rng) * (upper - lower)))]
+    return [_clamp01(_randomized_pit(rng, lower, upper))]
 end
 
 #= Multivariate Student-t (full and diagonal scale): the conditional-t Rosenblatt
@@ -164,12 +174,16 @@ function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::AbstractV
     K = g.out_dim
     T = float(promote_type(eltype(g.B), eltype(x)))
 
+    # Cache the K−1 logits once; both the log-sum-exp and the per-category
+    # binomial probabilities below read them.
+    ηs = Vector{T}(undef, K - 1)
     lse = zero(T)   # log Σₗ exp(ηₗ), reference category contributes exp(0)
     for j in 1:(K - 1)
         η = zero(T)
         for r in 1:(g.in_dim)
             η += g.B[r, j] * x[r]
         end
+        ηs[j] = η
         lse = logaddexp(lse, η)
     end
 
@@ -181,15 +195,12 @@ function _emission_to_driver(rng::AbstractRNG, g::MultinomialGLM, obs::AbstractV
     ε = Vector{T}(undef, K - 1)
     p_rem = one(T)
     for j in 1:(K - 1)
-        η = zero(T)
-        for r in 1:(g.in_dim)
-            η += g.B[r, j] * x[r]
-        end
-        pj = exp(η - lse)
+        pj = exp(ηs[j] - lse)
         # p_rem can undershoot 0 by rounding once most mass is spent.
         pc = p_rem > 0 ? clamp(pj / p_rem, zero(T), one(T)) : one(T)
         yj = Int(obs[j])
-        ε[j] = _emission_to_driver(rng, Binomial(n_rem, Float64(pc)), yj)[1]
+        # `float(pc)` keeps a Float32/Dual pool in its own type (vs Float64(pc)).
+        ε[j] = _emission_to_driver(rng, Binomial(n_rem, float(pc)), yj)[1]
         n_rem -= yj
         p_rem -= pj
     end
@@ -218,7 +229,7 @@ function _emission_to_driver(rng::AbstractRNG, d::AbstractDDMEmission, obs, cont
     else
         lower, upper, p_choice = p1, one(T), one(T) - p1
     end
-    ε_choice = lower + rand(rng, T) * (upper - lower)
+    ε_choice = _randomized_pit(rng, lower, upper)
     # A never-hit boundary has an uninformative conditional RT: draw uniformly.
     ε_rt = p_choice > 0 ? _clamp01(Fc / p_choice) : rand(rng, T)
     return [_clamp01(ε_choice), ε_rt]

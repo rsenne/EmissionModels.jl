@@ -56,7 +56,7 @@ function DensityInterface.logdensityof(dist::PoissonZeroInflated, x::Real)
         return logaddexp(log_pi, log_1minus_pi_poisson_0)
     else
         # log P(X=k) = log(1-π) + k*log(λ) - λ - log(k!)
-        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - loggamma(float(x) + 1)
+        return log(1 - dist.π) + x * log(dist.λ) - dist.λ - loggamma(oftype(dist.λ, x) + 1)
     end
 end
 
@@ -112,7 +112,7 @@ function StatsAPI.fit!(
 
     epsilon = eps(typeof(dist.λ))
     if all(iszero, obs_seq)
-        dist.π = 1.0 - epsilon
+        dist.π = one(dist.λ) - epsilon
         dist.λ = epsilon
         return dist
     end
@@ -138,7 +138,7 @@ function StatsAPI.fit!(
                 prob_sampling = (1 - dist.π) * prob_sampling_zero
                 total = prob_structural + prob_sampling
                 if total < epsilon
-                    p_structural_zero = 1.0 # treat as structural when both probs vanish
+                    p_structural_zero = one(dist.λ) # treat as structural when both probs vanish
                 else
                     p_structural_zero = prob_structural / total
                 end

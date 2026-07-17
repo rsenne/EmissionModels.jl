@@ -23,7 +23,11 @@ function EmissionModels._ddm_logpdf(
        zero density. =#
     p = try
         SequentialSamplingModels.pdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
-    catch
+    catch e
+        #= Only numeric edge cases (the series can misbehave at extreme
+           parameters) count as zero density. Re-raise programming errors such
+           as MethodError so a real precision/dispatch bug is not masked. =#
+        (e isa InterruptException || e isa MethodError) && rethrow()
         return T(-Inf)
     end
     return (isfinite(p) && p > 0) ? T(log(p)) : T(-Inf)
@@ -41,7 +45,10 @@ function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::
     # Same homogeneous-type promotion and overflow guard as `_ddm_logpdf`.
     F = try
         SequentialSamplingModels.cdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
-    catch
+    catch e
+        #= Same narrowing as `_ddm_logpdf`: numeric edge cases carry zero mass,
+        but MethodError/InterruptException propagate. =#
+        (e isa InterruptException || e isa MethodError) && rethrow()
         return zero(T)
     end
     # Series truncation can stray slightly outside [0, 1].

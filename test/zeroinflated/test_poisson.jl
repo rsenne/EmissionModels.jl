@@ -212,3 +212,27 @@ end
     @test logdensityof(dist, 2.5) == -Inf
     @test logdensityof(dist, -1.0) == -Inf
 end
+
+@testset "Float32 type stability" begin
+    dist = PoissonZeroInflated(3.0f0, 0.2f0)
+    @test dist.λ isa Float32
+    # Every logdensityof branch must return the field type T (no Float64 leak
+    # from loggamma or hardcoded literals).
+    @test @inferred(logdensityof(dist, 2)) isa Float32   # x > 0 branch
+    @test @inferred(logdensityof(dist, 0)) isa Float32   # x == 0 branch
+    @test @inferred(logdensityof(dist, -1)) isa Float32  # zero-mass branch
+
+    # fit! keeps the parameters in Float32.
+    rng = Random.MersenneTwister(2024)
+    obs = [rand(rng, dist) for _ in 1:200]
+    w = ones(Float32, 200)
+    fit!(dist, obs, w)
+    @test dist.λ isa Float32
+    @test dist.π isa Float32
+
+    # All-zeros branch also stays in T.
+    dz = PoissonZeroInflated(3.0f0, 0.2f0)
+    fit!(dz, zeros(Int, 5), ones(Float32, 5))
+    @test dz.π isa Float32
+    @test dz.λ isa Float32
+end

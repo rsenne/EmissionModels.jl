@@ -42,6 +42,11 @@ function stochastic_drivers(
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive"))
     isempty(obs_seq) && throw(ArgumentError("obs_seq must be non-empty"))
+    length(control_seq) == length(obs_seq) || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ obs_seq length $(length(obs_seq))",
+        ),
+    )
     T_len = length(obs_seq)
     K = length(hmm)
 
