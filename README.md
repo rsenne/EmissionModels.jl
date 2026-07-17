@@ -8,7 +8,7 @@
 [![JET](https://img.shields.io/badge/%F0%9F%9B%A9%EF%B8%8F_tested_with-JET.jl-233f9a)](https://github.com/aviatesk/JET.jl)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/JuliaDiff/BlueStyle)
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors)
+[![All Contributors](https://img.shields.io/badge/all_contributors-2-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 A Julia package providing emission models for [HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl). It supplies ready-to-use distributions that describe how observations are generated conditioned on the HMM's latent states.
@@ -134,12 +134,14 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
   <tbody>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/rsenne"><img src="https://avatars.githubusercontent.com/u/50930199?v=4?s=100" width="100px;" alt="Ryan Senne"/><br /><sub><b>Ryan Senne</b></sub></a><br /><a href="#maintenance-rsenne" title="Maintenance">🚧</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Code">💻</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Tests">⚠️</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Documentation">📖</a> <a href="#ideas-rsenne" title="Ideas, Planning, & Feedback">🤔</a> <a href="https://github.com/rsenne/EmissionModels.jl/pulls?q=is%3Apr+reviewed-by%3Arsenne" title="Reviewed Pull Requests">👀</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/nguyenston"><img src="https://avatars.githubusercontent.com/u/35545554?v=4?s=100" width="100px;" alt="Nguyen Nguyen"/><br /><sub><b>Nguyen Nguyen</b></sub></a><br /><a href="https://github.com/rsenne/EmissionModels.jl/commits?author=nguyenston" title="Code">💻</a> <a href="#ideas-nguyenston" title="Ideas, Planning, & Feedback">🤔</a> <a href="https://github.com/rsenne/EmissionModels.jl/pulls?q=is%3Apr+reviewed-by%3Anguyenston" title="Reviewed Pull Requests">👀</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=nguyenston" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>
 
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
+
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind are welcome!
