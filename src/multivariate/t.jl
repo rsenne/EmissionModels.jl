@@ -268,7 +268,9 @@ end
 function _nu_f(ν, C, d)
     return -digamma(ν / 2) + log(ν / 2) + 1 + C + digamma((ν + d) / 2) - log((ν + d) / 2)
 end
-_nu_df(ν, d) = -0.5 * trigamma(ν / 2) + 1 / ν + 0.5 * trigamma((ν + d) / 2) - 1 / (ν + d)
+# `/2` rather than `0.5 *` keeps the derivative in ν's own type (a Float64 `0.5`
+# would make the log-space Newton step type-unstable for Float32 ν).
+_nu_df(ν, d) = -trigamma(ν / 2) / 2 + 1 / ν + trigamma((ν + d) / 2) / 2 - 1 / (ν + d)
 
 function _update_nu(ν0::Real, avg_log_u_minus_u, d::Integer)
     C = avg_log_u_minus_u

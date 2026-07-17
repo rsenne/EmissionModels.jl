@@ -103,6 +103,30 @@ using StatsAPI
     end
 end
 
+@testset "Constructors reject an empty β" begin
+    # Univariate GLMs previously accepted a length-0 β, producing a degenerate
+    # model that only failed later; construction must reject it up front.
+    @test_throws ArgumentError GaussianGLM(Float64[], 1.0)
+    @test_throws ArgumentError GaussianGLM(Float64[], 1.0, RidgePrior(0.5))
+    @test_throws ArgumentError BernoulliGLM(Float64[])
+    @test_throws ArgumentError PoissonGLM(Float64[])
+    @test_throws ArgumentError GaussianGLM(Float32[], 1.0f0)
+end
+
+@testset "MvGaussianGLM.logdensityof promotes over inputs" begin
+    # Float32 coefficients with Float64 covariates/observation must promote to
+    # Float64 (not silently downcast), matching the other GLM families.
+    g32 = MvGaussianGLM(Float32[0.5 -1.0; 1.0 0.5], Float32[1.0 0.3; 0.3 1.5])
+    lp = @inferred logdensityof(g32, [0.1, 0.2]; control_seq=[1.0, 2.0])
+    @test lp isa Float64
+    # Matched Float32 inputs stay Float32.
+    lp32 = @inferred logdensityof(g32, Float32[0.1, 0.2]; control_seq=Float32[1.0, 2.0])
+    @test lp32 isa Float32
+    # The promoted result agrees with an all-Float64 model.
+    g64 = MvGaussianGLM([0.5 -1.0; 1.0 0.5], [1.0 0.3; 0.3 1.5])
+    @test lp ≈ logdensityof(g64, [0.1, 0.2]; control_seq=[1.0, 2.0]) rtol = 1e-4
+end
+
 @testset "logdensityof return-type stability" begin
     @testset "Float32 inputs return Float32" begin
         glm_g = GaussianGLM(Float32[0.5, -1.0], 1.0f0)

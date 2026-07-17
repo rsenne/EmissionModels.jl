@@ -126,6 +126,7 @@ mutable struct GaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     function GaussianGLM{T,P}(
         β::Vector{T}, σ2::T, prior::P
     ) where {T<:Real,P<:AbstractPrior}
+        isempty(β) && throw(ArgumentError("β must be non-empty"))
         σ2 > 0 || throw(ArgumentError("σ2 must be positive, got $σ2"))
         return new{T,P}(β, σ2, prior)
     end
@@ -170,6 +171,7 @@ function StatsAPI.fit!(
     obs_seq::AbstractVector{<:Real},
     weight_seq::AbstractVector{<:Real};
     control_seq::AbstractMatrix{<:Real},
+    kwargs..., # closed-form WLS: solver kwargs (max_iter/gtol) accepted, ignored
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
@@ -425,6 +427,7 @@ mutable struct BernoulliGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     prior::P
 
     function BernoulliGLM{T,P}(β::Vector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+        isempty(β) && throw(ArgumentError("β must be non-empty"))
         return new{T,P}(β, prior)
     end
 end
@@ -515,6 +518,7 @@ mutable struct PoissonGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
     prior::P
 
     function PoissonGLM{T,P}(β::Vector{T}, prior::P) where {T<:Real,P<:AbstractPrior}
+        isempty(β) && throw(ArgumentError("β must be non-empty"))
         return new{T,P}(β, prior)
     end
 end
@@ -675,17 +679,19 @@ function DensityInterface.logdensityof(
 
     k = glm.out_dim
     p = glm.in_dim
-    T = eltype(glm.B)
+    #= Promote over the coefficients, covariates, and observation (as every
+       other family's `logdensityof` does) so higher-precision inputs are not
+       silently downcast and ForwardDiff duals pass through instead of hitting
+       an InexactError. =#
+    T = float(promote_type(eltype(glm.B), eltype(control_seq), eltype(y)))
     diff = Vector{T}(undef, k)
 
     #= μ = Bᵀ x and diff = y − μ, fused as a single loop to avoid the
-       Adjoint*Vector temporary that BLAS would otherwise allocate. The output
-       type is `eltype(B)`: inputs in higher precision are downcast on entry
-       and the residual buffer stays at the struct's float type. =#
+       Adjoint*Vector temporary that BLAS would otherwise allocate. =#
     for j in 1:k
         sj = zero(T)
         for r in 1:p
-            sj += glm.B[r, j] * T(control_seq[r])
+            sj += T(glm.B[r, j]) * T(control_seq[r])
         end
         diff[j] = T(y[j]) - sj
     end
@@ -695,7 +701,7 @@ function DensityInterface.logdensityof(
         mahal² += diff[j] * diff[j]
     end
 
-    return -T(k) * log(T(2π)) / 2 - glm.logdetΣ / 2 - mahal² / 2
+    return -T(k) * log(T(2π)) / 2 - T(glm.logdetΣ) / 2 - mahal² / 2
 end
 
 function Random.rand(
@@ -759,6 +765,7 @@ function StatsAPI.fit!(
     obs_seq::AbstractVector{<:AbstractVector},
     weight_seq::AbstractVector{<:Real};
     control_seq::AbstractMatrix{<:Real},
+    kwargs..., # closed-form WLS: solver kwargs (max_iter/gtol) accepted, ignored
 ) where {T<:Real}
     n, p = size(control_seq)
     length(obs_seq) == n ||
