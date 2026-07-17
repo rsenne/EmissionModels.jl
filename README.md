@@ -133,7 +133,7 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/rsenne"><img src="https://avatars.githubusercontent.com/u/50930199?v=4?s=100" width="100px;" alt="Ryan Senne"/><br /><sub><b>Ryan Senne</b></sub></a><br /><a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Code">💻</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Documentation">📖</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Tests">⚠️</a> <a href="#infra-rsenne" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-rsenne" title="Maintenance">🚧</a> <a href="#ideas-rsenne" title="Ideas, Planning, & Feedback">🤔</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/rsenne"><img src="https://avatars.githubusercontent.com/u/50930199?v=4?s=100" width="100px;" alt="Ryan Senne"/><br /><sub><b>Ryan Senne</b></sub></a><br /><a href="#maintenance-rsenne" title="Maintenance">🚧</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Code">💻</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Tests">⚠️</a> <a href="https://github.com/rsenne/EmissionModels.jl/commits?author=rsenne" title="Documentation">📖</a> <a href="#ideas-rsenne" title="Ideas, Planning, & Feedback">🤔</a> <a href="https://github.com/rsenne/EmissionModels.jl/pulls?q=is%3Apr+reviewed-by%3Arsenne" title="Reviewed Pull Requests">👀</a></td>
     </tr>
   </tbody>
 </table>
