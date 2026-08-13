@@ -41,6 +41,10 @@ Pkg.develop(; path=joinpath(dirname(@__DIR__), "libs", "EmissionModelsTest"))
         include("ssm/test_ddm.jl")
     end
 
+    @testset "Calcium imaging emissions" begin
+        include("calcium/test_calcium.jl")
+    end
+
     @testset "ACDC model selection" begin
         include("acdc/test_acdc.jl")
     end
