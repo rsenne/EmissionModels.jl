@@ -15,6 +15,8 @@ for Baum-Welch EM.
 
 ### Added
 
+- Calcium emission model from Keeley, Zoltowski, Charles, and Pillow (eLife
+  220266), including simulation and fitting support.
 - **Static emissions**: zero-inflated Poisson (`PoissonZeroInflated`) and
   multivariate Student-t with full (`MvT`) or diagonal (`MvTDiag`) scale,
   including weighted maximum-likelihood fitting of the degrees of freedom.

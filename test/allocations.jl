@@ -244,6 +244,39 @@ using SequentialSamplingModels: SequentialSamplingModels
         @test (@allocated fit!(d2, obs, w; control_seq=controls, max_iter=5)) ≤ 10_000_000
     end
 
+    @testset "Calcium emissions" begin
+        params = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05])
+        em = CalciumEmission([0.6, 1.2], params; R=10)
+        y = [0.4, 0.9]
+        u = [0.3, 0.2]
+
+        #= The spike-count marginalization folds a running log-sum-exp instead
+           of filling a length-R buffer, so the density is zero-alloc despite
+           summing over R + 1 counts. =#
+        bench_logd(em, y, u, 1)
+        @test (@allocated bench_logd(em, y, u, REPS)) <= ALLOC_SLOP
+
+        # The Gaussian large-rate marginal is closed form: also zero-alloc, and
+        # independent of R rather than linear in it.
+        gparams = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05]; gaussian=true)
+        gem = CalciumEmission([40.0, 90.0], gparams)
+        bench_logd(gem, y, u, 1)
+        @test (@allocated bench_logd(gem, y, u, REPS)) <= ALLOC_SLOP
+
+        out = zeros(2)
+        bench_rand!_v(rng, em, out, u, 1)
+        @test (@allocated bench_rand!_v(rng, em, out, u, REPS)) <= ALLOC_SLOP
+
+        #= fit! keeps one length-N rate accumulator; the pooled normal
+           equations live in CalciumParams, so the cost is O(N) per call and
+           independent of the sequence length. =#
+        rngc = Random.MersenneTwister(2)
+        sim = rand_calcium(rngc, [1.0], reshape([1.0], 1, 1), [em], 400)
+        w = ones(400)
+        fit!(em, sim.obs_seq, w; control_seq=sim.control_seq)
+        @test (@allocated fit!(em, sim.obs_seq, w; control_seq=sim.control_seq)) ≤ 1024
+    end
+
     @testset "MvTDiag" begin
         d = 2
         mvtd = MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0)

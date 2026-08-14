@@ -24,6 +24,7 @@ include("zeroinflated/poisson.jl")
 include("multivariate/t.jl")
 include("glms/glm.jl")
 include("ssm/ddm.jl")
+include("calcium/calcium.jl")
 include("acdc/interface.jl")
 include("acdc/drivers.jl")
 include("acdc/hmm.jl")
@@ -37,6 +38,8 @@ export GaussianGLM, BernoulliGLM, PoissonGLM, MultinomialGLM
 export MvGaussianGLM, MvBernoulliGLM, MvPoissonGLM
 export AbstractPrior, NoPrior, RidgePrior
 export StimulusCodedDDM, CoherenceDDM
+export CalciumEmission, CalciumParams, calcium_emissions, init_calcium
+export lagged_controls, rand_calcium
 export neglogprior, neglogprior_grad!, neglogprior_hess!
 
 # ACDC model selection

@@ -10,3 +10,5 @@
 /test/Manifest*.toml
 
 /benchmark/Manifest*.toml
+
+dev/
