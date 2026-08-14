@@ -1,5 +1,6 @@
-#= Calcium-imaging emission model of Keeley, Zoltowski, Charles & Pillow,
-   "Improved inference of latent neural states from calcium imaging data".
+#= Calcium-imaging emission model of Keeley, Zoltowski, Charles & Pillow (2026),
+   "Improved inference of latent neural states from calcium imaging data"
+   (eLife 109405, reviewed preprint).
 
    Fluorescence is modelled directly, with the spike count marginalized out, so
    an HMM can be fit to raw traces without a separate deconvolution step. For
