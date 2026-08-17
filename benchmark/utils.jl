@@ -14,6 +14,14 @@
   `add_model_benchmarks!` registers logdensityof / rand(!) / fit! benchmarks
   for one spec. cfg carries the shared rng, control vector x, design matrix X,
   and weights w.
+
+  Models whose control is specific to the timestep rather than a shared design
+  matrix (calcium's lagged fluorescence, the DDM's per-trial stimulus) carry
+  their own simulated data and are registered by
+  `add_ctrl_seq_benchmarks!` instead; those specs replace `controlled` with
+
+    obs        observation sequence, one entry per timestep
+    controls   matching control sequence, `controls[t]` generated `obs[t]`
 =#
 using BenchmarkTools
 using EmissionModels
@@ -24,6 +32,8 @@ using Random: rand!
    HMM forward/backward pass does.=#
 logd_seq(d, ys, x) = sum(y -> logdensityof(d, y; control_seq=x), ys)
 logd_seq(d, ys) = sum(y -> logdensityof(d, y), ys)
+
+logd_pairs(d, ys, us) = sum(t -> logdensityof(d, ys[t], us[t]), eachindex(ys, us))
 
 function simulate(rng, model, X::AbstractMatrix)
     return [rand(rng, model; control_seq=view(X, i, :)) for i in axes(X, 1)]
@@ -58,5 +68,22 @@ function add_model_benchmarks!(suite, spec, cfg)
         suite["fit!"][name] = @benchmarkable fit!(d, $ys, $w) setup = (d = $(fresh)()) evals =
             1
     end
+    return suite
+end
+
+function add_ctrl_seq_benchmarks!(suite, spec, cfg)
+    (; name, model, fresh, buffer, obs, controls) = spec
+    (; rng, w) = cfg
+    u = last(controls)
+
+    suite["logdensityof"][name] = @benchmarkable logd_pairs($model, $obs, $controls)
+    if buffer === nothing
+        suite["rand"][name] = @benchmarkable rand($rng, $model, $u)
+    else
+        suite["rand!"][name] = @benchmarkable rand!($rng, $model, $buffer; control_seq=$u)
+    end
+    suite["fit!"][name] = @benchmarkable fit!(d, $obs, $w; control_seq=$controls) setup = (
+        d = $(fresh)()
+    ) evals = 1
     return suite
 end

@@ -15,8 +15,6 @@ for Baum-Welch EM.
 
 ### Added
 
-- Calcium emission model from Keeley, Zoltowski, Charles, and Pillow (eLife
-  220266), including simulation and fitting support.
 - **Static emissions**: zero-inflated Poisson (`PoissonZeroInflated`) and
   multivariate Student-t with full (`MvT`) or diagonal (`MvTDiag`) scale,
   including weighted maximum-likelihood fitting of the degrees of freedom.
@@ -32,6 +30,12 @@ for Baum-Welch EM.
   emissions for two-alternative forced-choice data, giving the DDM-HMM. The
   types always construct; `logdensityof`, `rand`, and `fit!` require
   `using SequentialSamplingModels`.
+- **Calcium imaging emissions** (`CalciumEmission`, `CalciumParams`): the
+  autoregressive fluorescence model of Keeley, Zoltowski, Charles, and Pillow
+  (eLife 109405) with the latent spike count marginalized out, so an HMM fits
+  raw fluorescence traces without a separate deconvolution step. Includes the
+  tied M-step across states, simulation (`rand_calcium`), control construction
+  (`lagged_controls`), and data-driven initialization (`init_calcium`).
 - **ACDC model selection**: `component_discrepancies`, `acdc_select`, and
   `ACDCResult` select the number of HMM states by driver recovery
   (probability-integral transform), scored with `KSDiscrepancy`,
