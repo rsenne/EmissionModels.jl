@@ -17,8 +17,7 @@ A Julia package providing emission models for [HiddenMarkovModels.jl](https://gi
 
 ```julia
 using Pkg
-Pkg.add("HiddenMarkovModels")
-Pkg.add(url="https://github.com/rsenne/EmissionModels.jl")
+Pkg.add(["EmissionModels", "HiddenMarkovModels"])
 
 using EmissionModels
 using HiddenMarkovModels
@@ -60,13 +59,14 @@ All types implement the `HiddenMarkovModels` emission interface (`rand`, `logden
 | `GaussianGLM(β, σ²)` | Linear regression with Gaussian noise. |
 | `BernoulliGLM(β)` | Logistic regression for binary data. |
 | `PoissonGLM(β)` | Log-linear regression for count data. |
+| `MultinomialGLM(B, n)` | Softmax regression over categories, for count vectors or choice labels. |
 | `MvGaussianGLM(B, Σ)` | Multivariate linear regression with shared full covariance. |
 | `MvBernoulliGLM(B)` | Independent logistic regressions, one per output dimension. |
 | `MvPoissonGLM(B)` | Independent log-linear regressions, one per output dimension. |
 
-The univariate types carry a coefficient vector `β` and emit scalars; the
-multivariate types carry a `p × k` coefficient matrix `B` and emit length-`k`
-vectors. All of them support regularization via priors:
+`GaussianGLM`, `BernoulliGLM`, and `PoissonGLM` carry a coefficient vector `β`
+and emit scalars; the rest carry a coefficient matrix `B` and emit vectors. All
+of them support regularization via priors:
 
 ```julia
 β = zeros(3)
@@ -83,6 +83,30 @@ Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (desig
 | `CoherenceDDM(; k, γ, α, z, τ)` | Drift diffusion model whose drift is a power law of signed stimulus coherence. |
 
 Both emit `(choice, rt)` pairs and subtype `ControlledEmission`, so a vector of them forms a `ControlledEmissionHMM` — the DDM-HMM, where hidden states are decision-making regimes. The Wiener first-passage-time density and sampler come from [SequentialSamplingModels.jl](https://github.com/itsdfish/SequentialSamplingModels.jl), a weak dependency: the types always construct, but `logdensityof`, `rand`, and `fit!` need `using SequentialSamplingModels` to activate the extension.
+
+### Calcium imaging emissions
+
+| Type | Description |
+|------|-------------|
+| `CalciumEmission(λ, params)` | Autoregressive fluorescence model with the spike count marginalized out. |
+
+The model of [Keeley, Zoltowski, Charles & Pillow](https://doi.org/10.7554/eLife.109405.1) fits an HMM directly to raw calcium traces, with no separate deconvolution step. A latent Poisson spike count drives an AR(*p*) fluorescence process, and the emission density sums the count out. Only the firing rates `λ` vary across states; the AR coefficients, spike influx and noise variance live in a shared `CalciumParams` and are fit with a tied M-step.
+
+```julia
+using HiddenMarkovModels: ControlledEmissionHMM
+
+λ = [0.15 1.60; 1.70 0.20]                          # neurons × states
+dists = calcium_emissions(λ, [0.9 0.85], [1.0, 1.0], [0.02, 0.02])
+hmm = ControlledEmissionHMM([0.5, 0.5], [0.97 0.03; 0.03 0.97], dists)
+```
+
+The AR history enters through the control interface, so these are
+`ControlledEmission`s like the GLMs and DDMs: each timestep's control is the
+vector of lagged fluorescence values, built by `lagged_controls`. Use
+`rand_calcium` to simulate (the trace must be rolled out step by step, since
+each control depends on the previous observation) and `init_calcium` to
+initialize a fit from data. For bulk signals with large rates, `gaussian=true`
+swaps the truncated Poisson sum for an analytic Gaussian marginal.
 
 ## ACDC model selection
 
@@ -112,16 +136,18 @@ DensityInterface.logdensityof(dist::MyEmission, obs)
 StatsAPI.fit!(dist::MyEmission, obs_seq, weight_seq)
 ```
 
-See the [documentation](https://rsenne.github.io/EmissionModels.jl/dev/) for details.
+See the [documentation](https://rsenne.github.io/EmissionModels.jl/stable/) for details.
 
 ## Installation
 
-EmissionModels.jl is not yet registered. Install from GitHub:
+EmissionModels.jl is registered in the General registry:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/rsenne/EmissionModels.jl")
+Pkg.add("EmissionModels")
 ```
+
+Requires Julia 1.10 or later.
 
 ## Contributing
 
