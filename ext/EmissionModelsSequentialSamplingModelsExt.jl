@@ -37,6 +37,11 @@ function EmissionModels._ddm_rand(rng, ν::Real, α::Real, z::Real, τ::Real)
     return rand(rng, DDM(ν, α, z, τ))
 end
 
+# A closure here is boxed inside `try` on Julia 1.10, so `_ddm_cdf` would infer `Any`.
+@inline function _ssm_cdf(::Type{T}, ν, α, z, τ, choice, rt) where {T}
+    return SequentialSamplingModels.cdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
+end
+
 function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::Real, rt::Real)
     T = float(promote_type(typeof(ν), typeof(α), typeof(z), typeof(τ), typeof(rt)))
     # Cases SequentialSamplingModels.cdf rejects; here they carry zero mass.
@@ -44,7 +49,16 @@ function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::
     rt > τ || return zero(T)
     # Same homogeneous-type promotion and overflow guard as `_ddm_logpdf`.
     F = try
-        SequentialSamplingModels.cdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
+        #= SSM's zero-drift branch (|ν| < sqrt(eps(T))) returns the cdf with the
+           wrong sign; interpolate between ±thr instead, which is O(thr²) exact. =#
+        thr = max(T(1e-6), 2 * sqrt(eps(T)))
+        if abs(ν) < thr
+            Fm = _ssm_cdf(T, -thr, α, z, τ, choice, rt)
+            Fp = _ssm_cdf(T, thr, α, z, τ, choice, rt)
+            Fm + (T(ν) + thr) / (2 * thr) * (Fp - Fm)
+        else
+            _ssm_cdf(T, ν, α, z, τ, choice, rt)
+        end
     catch e
         #= Same narrowing as `_ddm_logpdf`: numeric edge cases carry zero mass,
         but MethodError/InterruptException propagate. =#
