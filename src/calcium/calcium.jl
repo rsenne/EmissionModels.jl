@@ -797,7 +797,8 @@ spike input is white around its mean, so the trace autocovariance identifies
 within-state variance `c²λ + σ²`, which pins down the rate and the noise.
 `c` defaults to 1 unless that would start `λ` within reach of the `0:R` cap
 (`λ + 3√λ > R`); then it is estimated as the residual's third central moment
-over its variance, `c³λ / (c²λ + σ²) ≈ c`. Pass `c` to fix it explicitly.
+over its variance plus twice its lag-1 autocovariance (which cancels
+between-state drift). Pass `c` to fix it explicitly.
 Outside that case `c = 1` is an assumption about units, not an estimate.
 `fit_c=nothing` (default) fits `c` exactly when it was estimated here and
 `gaussian=false`; pass `fit_c=false` to hold an estimated `c` fixed.
