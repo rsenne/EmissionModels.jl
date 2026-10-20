@@ -212,8 +212,22 @@ mutable struct CalciumEmission{T<:Real} <: ControlledEmission
             throw(DimensionMismatch("λ length $(length(λ)) ≠ neurons $(nneurons(params))"))
         all(>(0), λ) || throw(ArgumentError("λ must be positive, got $λ"))
         R > 0 || throw(ArgumentError("R must be positive, got $R"))
+        params.gaussian || _warn_truncation(λ, R)
         return new{T}(λ, params, R, [loggamma(T(s + 1)) for s in 0:R])
     end
+end
+
+#= Warn rather than throw: EM can pass through a high-rate state briefly, but a
+   rate whose Poisson mass extends past R biases every E-step that sees it. =#
+function _warn_truncation(λ::AbstractVector{T}, R::Integer) where {T<:Real}
+    if any(l -> l + 4 * sqrt(l) > R, λ)
+        msg =
+            "Calcium rate λ = $(maximum(λ)) puts Poisson mass beyond the spike-count " *
+            "cap R = $R; the 0:R truncation will bias the fit. Increase R or " *
+            "rescale the trace (larger c)."
+        @warn msg maxlog = 1
+    end
+    return nothing
 end
 
 function CalciumEmission(
@@ -612,6 +626,7 @@ function StatsAPI.fit!(
             end
             em.λ[n] = max(λ̂, _variance_floor(T))
         end
+        p.gaussian || _warn_truncation(em.λ, R)
     end
 
     #= Tied M-step: solve once the whole sharing set has contributed. A state
@@ -780,6 +795,9 @@ The AR coefficients come from Yule-Walker equations on the centered trace: the
 spike input is white around its mean, so the trace autocovariance identifies
 `α` directly. The residual `r = y - Σ α y_lag` then has mean `cλ` and
 within-state variance `c²λ + σ²`, which pins down the rate and the noise.
+`c` defaults to 1 unless that would start `λ` within reach of the `0:R` cap
+(`λ + 4√λ > R`); then it is estimated as the residual's third central moment
+over its variance, `c³λ / (c²λ + σ²) ≈ c`. Pass `c` to fix it explicitly.
 Per-state rates are that global rate jittered by `exp(spread * randn(rng))`,
 since identical states give Baum-Welch no asymmetry to break.
 
@@ -903,6 +921,7 @@ function init_calcium(
 
         vr = zero(T)
         cr = zero(T)
+        m3 = zero(T)
         nlag = 0
         for (s, e) in segs
             rprev = zero(T)
@@ -910,6 +929,7 @@ function init_calcium(
             for t in (s + ord):e
                 r = _residual(obs_seq, α_init, n, t, ord, T) - mr
                 vr += r * r
+                m3 += r * r * r
                 if has_prev
                     cr += r * rprev
                     nlag += 1
@@ -920,6 +940,7 @@ function init_calcium(
         end
         vr = cnt > 1 ? vr / (cnt - 1) : one(T)
         cr = nlag > 0 ? cr / nlag : zero(T)
+        m3 = cnt > 0 ? m3 / cnt : zero(T)
 
         #= `r = b + cs + ε` is white within a state, so its lag-1
            autocovariance is entirely the slow drift of the rate between
@@ -937,7 +958,17 @@ function init_calcium(
            out of. So when the mean carries no usable scale, fall back to
            splitting the within-state spread and let whatever mean is left over
            be the baseline. =#
-        if fit_b && mr <= T(0.05) * sqrt(within)
+        use_mean = !(fit_b && mr <= T(0.05) * sqrt(within))
+        if c === nothing && !gaussian
+            #= `κ₃/κ₂ = c³λ / (c²λ + σ²) ≈ c`: Gaussian noise has no skew, and
+               unlike the mean this ignores the Yule-Walker bias in `α`. Never
+               shrink c below 1, which would only raise λ further. =#
+            λ1 = max(use_mean ? mr : T(0.9) * within, zero(T))
+            if λ1 + 4 * sqrt(λ1) > R
+                cvec[n] = max(m3 / max(vr, _variance_floor(T)), one(T))
+            end
+        end
+        if !use_mean
             λ0[n] = max(T(0.9) * within / (cvec[n] * cvec[n]), _variance_floor(T))
             σ2[n] = max(T(0.1) * within, _variance_floor(T))
             b0[n] = mr - cvec[n] * λ0[n]

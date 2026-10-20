@@ -265,6 +265,30 @@ end
         @test_throws DimensionMismatch init_calcium(sim.obs_seq, 2, 1; c=[1.0])
     end
 
+    @testset "init_calcium scales c to keep λ clear of R (#73)" begin
+        dists = calcium_emissions([0.3 1.5; 1.5 0.3], [0.9 0.85], [20.0, 20.0], [4.0, 4.0])
+        sim = rand_calcium(
+            MersenneTwister(1), [0.5, 0.5], [0.95 0.05; 0.05 0.95], dists, 2000
+        )
+
+        d0 = init_calcium(sim.obs_seq, 2, 1; rng=MersenneTwister(1))
+        @test all(d -> all(<(3), d.λ), d0)
+        @test all(c -> 20 / 3 < c < 60, d0[1].params.c)
+
+        # an explicit c is used as given
+        d1 = init_calcium(sim.obs_seq, 2, 1; c=[20.0, 20.0], rng=MersenneTwister(1))
+        @test d1[1].params.c == [20.0, 20.0]
+        @test all(d -> all(<(3), d.λ), d1)
+    end
+
+    @testset "warning when λ approaches R" begin
+        params = CalciumParams([0.9;;], [1.0], [0.05])
+        @test_logs (:warn, r"R") CalciumEmission([9.0], params; R=10)
+        @test_logs CalciumEmission([0.5], params; R=10)
+        gparams = CalciumParams([0.9;;], [1.0], [0.05]; gaussian=true)
+        @test_logs CalciumEmission([80.0], gparams; R=10)
+    end
+
     @testset "Baum-Welch on an AR(1) calcium HMM" begin
         rng = MersenneTwister(11)
         n_t = 2000
