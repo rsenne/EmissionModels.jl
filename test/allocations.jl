@@ -108,6 +108,12 @@ using SequentialSamplingModels: SequentialSamplingModels
         gmv = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
         @test (@allocated fit!(gmv, ymv, w; control_seq=X)) ≤ 2_000
 
+        # RidgePrior adds the k×k eigendecomposition of the Sylvester solve.
+        gmvr = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2), RidgePrior(1.0))
+        fit!(gmvr, ymv, w; control_seq=X)
+        gmvr = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2), RidgePrior(1.0))
+        @test (@allocated fit!(gmvr, ymv, w; control_seq=X)) ≤ 4_096
+
         #= BernoulliGLM/PoissonGLM: Optim Newton via only_fgh!. Solver state is
            O(p²) per fit, measured ~4-6 KB for p=2, independent of n. =#
         yb = Int[rand(rng) < 0.5 ? 1 : 0 for _ in 1:n]

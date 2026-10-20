@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `RidgePrior(λ)` now means `β ~ N(0, λ⁻¹I)` for Gaussian GLMs too; previously
   the Gaussian closed-form path effectively used `N(0, σ²λ⁻¹I)` (#77).
+- `MvGaussianGLM` throws `ArgumentError` for priors whose Hessian is not
+  isotropic; previously any constant-Hessian prior was accepted (#77).
 
 ## [0.1.0]
 

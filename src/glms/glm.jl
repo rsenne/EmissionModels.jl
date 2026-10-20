@@ -69,9 +69,10 @@ See [`neglogprior`](@ref).
 !!! note "Closed-form Gaussian GLM"
     The `GaussianGLM`/`MvGaussianGLM` fits add the prior curvature directly to the
     normal equations at the current noise variance and pass a placeholder `β`. A
-    prior usable on that closed-form path must therefore have a `β`-independent
-    Hessian sized by `H` alone (as `RidgePrior` does); `MvGaussianGLM` further
-    requires it to be isotropic (`λI`). Priors whose Hessian depends on `β` still
+    prior usable on that closed-form path must therefore have a constant
+    Hessian sized by `H` alone and zero gradient at `β = 0` (as `RidgePrior`
+    does), since that path never calls `neglogprior_grad!`; `MvGaussianGLM`
+    further requires the Hessian to be isotropic (`λI`). Priors whose Hessian depends on `β` still
     work with the Newton-based GLMs, which pass the live coefficients.
 """
 function neglogprior_hess! end
@@ -123,8 +124,8 @@ function neglogprior_grad!(p::RidgePrior, g, β)
 end
 
 #= Size the λI curvature by the Hessian itself, not `β`, so the closed-form
-   Gaussian GLM path can add ridge to XᵀWX without depending on the value or
-   length of the `β` argument it passes. =#
+   Gaussian GLM path can add ridge to its σ²-scaled normal equations without
+   depending on the value or length of the `β` argument it passes. =#
 function neglogprior_hess!(p::RidgePrior, H, β)
     λ = float(eltype(H))(p.λ)
     for i in axes(H, 1)
@@ -871,7 +872,8 @@ function _isotropic_prior_curvature(prior::AbstractPrior, H, β)
     Hp == λ * I || throw(
         ArgumentError(
             "MvGaussianGLM supports only priors with an isotropic Hessian (λI); " *
-            "got $(typeof(prior)).",
+            "got $(typeof(prior)); use `RidgePrior`, or fit each output with a " *
+            "`GaussianGLM`.",
         ),
     )
     return λ

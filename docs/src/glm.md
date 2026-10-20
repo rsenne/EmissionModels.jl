@@ -98,7 +98,9 @@ The prior means the same thing for every GLM: `RidgePrior(λ)` is
 depends on the noise variance, so `fit!` takes a conditional-maximisation (ECM)
 step: it solves for ``β`` at the current ``σ^2`` (``Σ`` for `MvGaussianGLM`),
 i.e. ``(X^\top W X + σ^2 λ I)\,β = X^\top W y``, then updates the variance from
-the new residuals. Repeated calls (as in Baum-Welch) converge to the joint MAP.
+the new residuals. Repeated calls with fixed weights converge to the joint MAP;
+inside Baum-Welch each call is one ECM step, so the penalised objective stays
+monotone.
 
 ```julia
 # Gaussian is closed-form weighted least squares.
