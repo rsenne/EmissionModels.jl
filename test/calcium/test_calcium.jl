@@ -103,7 +103,7 @@ end
 
     @testset "rand_calcium rolls out a consistent trace" begin
         rng = MersenneTwister(0)
-        params = CalciumParams([0.9 0.9], [1.0, 1.0], [0.02, 0.02]; nshare=2)
+        params = CalciumParams([0.9 0.9], [1.0, 1.0], [0.02, 0.02])
         dists = [CalciumEmission([0.2, 1.5], params), CalciumEmission([1.5, 0.2], params)]
         sim = rand_calcium(rng, [1.0, 0.0], [0.9 0.1; 0.1 0.9], dists, 50)
 
@@ -120,11 +120,11 @@ end
     @testset "tied M-step pools across states" begin
         rng = MersenneTwister(7)
         α_true = [0.90 0.80]
-        params = CalciumParams(α_true, [1.0, 1.0], [0.02, 0.02]; nshare=2)
+        params = CalciumParams(α_true, [1.0, 1.0], [0.02, 0.02])
         dists = [CalciumEmission([0.2, 1.2], params), CalciumEmission([1.2, 0.2], params)]
         sim = rand_calcium(rng, [0.5, 0.5], [0.9 0.1; 0.1 0.9], dists, 400)
 
-        p_fit = CalciumParams([0.5 0.5], [1.0, 1.0], [0.5, 0.5]; nshare=2)
+        p_fit = CalciumParams([0.5 0.5], [1.0, 1.0], [0.5, 0.5])
         e1 = CalciumEmission([0.5, 0.5], p_fit)
         e2 = CalciumEmission([1.0, 1.0], p_fit)
         w1 = [s == 1 ? 1.0 : 0.0 for s in sim.state_seq]
@@ -157,6 +157,31 @@ end
         tied = calcium_emissions([0.5 1.0; 1.0 0.5], [0.5 0.5], [1.0, 1.0], [0.1, 0.1])
         @test tied[1].params === tied[2].params
         @test tied[1].params.nshare == 2
+    end
+
+    @testset "sharing count is derived from construction (#71)" begin
+        rng = MersenneTwister(1)
+        dists = calcium_emissions([0.3 1.5; 1.5 0.3], [0.9 0.85], [1.0, 1.0], [0.05, 0.05])
+        sim = rand_calcium(rng, [0.5, 0.5], [0.95 0.05; 0.05 0.95], dists, 500)
+
+        p = CalciumParams([0.5 0.5], [1.0, 1.0], [0.5, 0.5])
+        @test p.nshare == 0
+        d = [CalciumEmission([0.5, 0.5], p), CalciumEmission([1.0, 1.0], p)]
+        @test p.nshare == 2
+        hmm = ControlledEmissionHMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], d)
+        hmm_fit, lls = baum_welch(hmm, sim.obs_seq, sim.control_seq; seq_ends=[500])
+        @test all(diff(lls) .>= -1e-8)
+        @test hmm_fit.dists[1].params.α != [0.5 0.5]
+        @test hmm_fit.dists[1].params.ncalls == 0
+
+        untied = calcium_emissions(
+            [0.5 1.0; 1.0 0.5], [0.5 0.5], [1.0, 1.0], [0.1, 0.1]; tied=false
+        )
+        @test all(e -> e.params.nshare == 1, untied)
+
+        copied = deepcopy(d)
+        @test copied[1].params === copied[2].params
+        @test copied[1].params.nshare == 2
     end
 
     @testset "positional fit! matches the keyword path" begin
@@ -387,7 +412,7 @@ end
         rng = MersenneTwister(23)
         n_t = 4000
         b_true = 0.5
-        ptrue = CalciumParams([0.95;;], [1.0], [0.0225]; b=[b_true], nshare=2)
+        ptrue = CalciumParams([0.95;;], [1.0], [0.0225]; b=[b_true])
         dtrue = [CalciumEmission([0.5], ptrue), CalciumEmission([4.0], ptrue)]
         sim = rand_calcium(rng, [0.5, 0.5], [0.98 0.02; 0.02 0.98], dtrue, n_t)
         @test all(v -> only(v) > 0, sim.obs_seq)
@@ -424,14 +449,12 @@ end
         rng = MersenneTwister(41)
         n_t = 1500
         α, m = 0.95, 30.0
-        ptrue = CalciumParams([α;;], [1.0], [0.05]; b=[0.5], fit_b=true, nshare=2)
+        ptrue = CalciumParams([α;;], [1.0], [0.05]; b=[0.5], fit_b=true)
         dtrue = [CalciumEmission([0.5], ptrue; R=20), CalciumEmission([4.0], ptrue; R=20)]
         sim = rand_calcium(rng, [0.5, 0.5], [0.98 0.02; 0.02 0.98], dtrue, n_t)
 
         shifted = [v .- m for v in sim.obs_seq]
-        pshift = CalciumParams(
-            [α;;], [1.0], [0.05]; b=[0.5 - m * (1 - α)], fit_b=true, nshare=2
-        )
+        pshift = CalciumParams([α;;], [1.0], [0.05]; b=[0.5 - m * (1 - α)], fit_b=true)
         dshift = [
             CalciumEmission([0.5], pshift; R=20), CalciumEmission([4.0], pshift; R=20)
         ]
