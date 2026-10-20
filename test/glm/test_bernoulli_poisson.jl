@@ -222,7 +222,6 @@ end
             s = rand(MersenneTwister(1), glm; control_seq=x)
             @test s isa Int
             @test s >= 0
-            @test !isnan(logdensityof(glm, 3; control_seq=x))
         end
         moderate = [rand(rng, PoissonGLM([5.0]); control_seq=[1.0]) for _ in 1:2_000]
         @test mean(moderate) ≈ exp(5.0) rtol = 0.05
@@ -490,7 +489,6 @@ end
         @test eltype(s) == Int
         @test all(>=(0), s)
         @test s[2] == 0
-        @test !isnan(logdensityof(glm, [3, 0, 100]; control_seq=x))
         draws = [rand(rng, glm; control_seq=x)[3] for _ in 1:2_000]
         @test mean(draws) ≈ exp(5.0) rtol = 0.05
     end

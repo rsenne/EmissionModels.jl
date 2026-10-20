@@ -523,7 +523,8 @@ Log-linear (Poisson) regression emission for count observations.
 
 E[Y|x] = exp(xᵀβ). `fit!` minimizes the weighted negative log-posterior via
 Optim's Newton method with analytic gradient and Hessian. Any `AbstractPrior`
-composes without changes to the solver.
+composes without changes to the solver. η is clamped to ±log(typemax(Int)/2)
+before sampling so draws fit in `Int`.
 
 # Fields
 - `β`: coefficient vector (length p)
@@ -1116,6 +1117,7 @@ end
     rand!(rng, glm::MvPoissonGLM, out; control_seq)
 
 In-place sample. `out` must be a length-`out_dim` integer vector.
+η is clamped to ±log(typemax(Int)/2) before sampling so draws fit in `Int`.
 """
 function Random.rand!(
     rng::AbstractRNG,
