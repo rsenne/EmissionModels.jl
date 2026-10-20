@@ -572,3 +572,29 @@ end
         @test norm(X' * X * mv.B + λ * mv.B * mv.Σ - X' * Y) < 1.0f-4 * norm(X' * Y)
     end
 end
+
+@testset "fit! leaves parameters untouched when it throws (#80)" begin
+    #= Three nonzero weights with p = 2 leave one residual degree of freedom,
+       so Σ is singular. B must not be committed before Σ is checked. =#
+    rng80 = Random.MersenneTwister(1)
+    X = randn(rng80, 20, 2)
+    ys = [randn(rng80, 2) for _ in 1:20]
+    w = zeros(20)
+    w[1:3] .= 1.0
+    mv = MvGaussianGLM([0.1 0.2; 0.3 0.4], [2.0 0.5; 0.5 1.0])
+    B0, Σ0 = copy(mv.B), copy(mv.Σ)
+    L0, ld0 = copy(mv.Σ_chol.factors), mv.logdetΣ
+    @test_throws ArgumentError fit!(mv, ys, w; control_seq=X)
+    @test mv.B == B0
+    @test mv.Σ == Σ0
+    @test mv.Σ_chol.factors == L0
+    @test mv.logdetΣ == ld0
+
+    # An all-zero covariate column makes XᵀWX singular, so the WLS solve throws.
+    g = GaussianGLM([0.5, -1.0], 2.0)
+    β0, σ20 = copy(g.β), g.σ2
+    Xd = hcat(X[:, 1], zeros(20))
+    @test_throws ArgumentError fit!(g, randn(rng80, 20), ones(20); control_seq=Xd)
+    @test g.β == β0
+    @test g.σ2 == σ20
+end

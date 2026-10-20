@@ -396,16 +396,19 @@ function _rank1_update!(A::AbstractMatrix, α::Real, x::AbstractVector)
     return A
 end
 
-#= Scale M-step: recompute the scale from residuals against the updated μ,
-   weighted by wᵢ·pwᵢ / Σw, then refresh the cached `logdetΣ` (and Cholesky). =#
-function _scatter_mstep!(dist::MvT, ws, obs_seq, weight_seq, posterior_weights, weight_sum)
+#= Scale M-step: recompute the scale from residuals against the candidate μ
+   (not yet written to `dist`), weighted by wᵢ·pwᵢ / Σw, then refresh the cached
+   `logdetΣ` (and Cholesky). =#
+function _scatter_mstep!(
+    dist::MvT, μ, ws, obs_seq, weight_seq, posterior_weights, weight_sum
+)
     T = eltype(dist.μ)
     d = dist.dim
     Σ_acc = ws.scatter
     fill!(Σ_acc, zero(T))
     for i in eachindex(obs_seq)
         weight_seq[i] > 0 || continue
-        ws.diff .= obs_seq[i] .- dist.μ
+        ws.diff .= obs_seq[i] .- μ
         wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
         _rank1_update!(Σ_acc, wp, ws.diff)
     end
@@ -432,7 +435,7 @@ function _scatter_mstep!(dist::MvT, ws, obs_seq, weight_seq, posterior_weights, 
     return dist
 end
 function _scatter_mstep!(
-    dist::MvTDiag, ws, obs_seq, weight_seq, posterior_weights, weight_sum
+    dist::MvTDiag, μ, ws, obs_seq, weight_seq, posterior_weights, weight_sum
 )
     T = eltype(dist.μ)
     d = dist.dim
@@ -442,7 +445,7 @@ function _scatter_mstep!(
         weight_seq[i] > 0 || continue
         wp = T(weight_seq[i] / weight_sum) * posterior_weights[i]
         for j in 1:d
-            diff_j = obs_seq[i][j] - dist.μ[j]
+            diff_j = obs_seq[i][j] - μ[j]
             σ²_acc[j] += wp * diff_j^2
         end
     end
@@ -538,10 +541,11 @@ function StatsAPI.fit!(
                 posterior_weights[i] = zero(T)
             end
         end
-        dist.μ .= μ_acc ./ weight_post_sum
+        μ_acc ./= weight_post_sum
 
-        # Scale M-step (Σ or σ²): second residual pass + logdetΣ refresh.
-        _scatter_mstep!(dist, ws, obs_seq, weight_seq, posterior_weights, weight_sum)
+        # Scale M-step against the candidate μ; commit μ only if it succeeds.
+        _scatter_mstep!(dist, μ_acc, ws, obs_seq, weight_seq, posterior_weights, weight_sum)
+        copyto!(dist.μ, μ_acc)
 
         # ν M-step (ECME)
         if !fix_nu
