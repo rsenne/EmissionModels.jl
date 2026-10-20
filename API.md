@@ -27,7 +27,7 @@ re-exported; every emission type implements the applicable subset:
 | `fit!(d, obs_seq[, control_seq], weight_seq; kwargs...)` | Weighted in-place M-step update (StatsAPI). |
 
 Static (uncontrolled) emissions take `(obs_seq, weight_seq)`; controlled
-emissions (GLMs, DDMs) additionally take `control_seq` per the
+emissions (GLMs, DDMs, calcium) additionally take `control_seq` per the
 HiddenMarkovModels.jl `ControlledEmission` positional interface.
 
 ### Static distributions
@@ -67,10 +67,21 @@ HiddenMarkovModels.jl `ControlledEmission` positional interface.
 | Name | Description |
 | --- | --- |
 | `StimulusCodedDDM` | Drift-diffusion emission with stimulus-coded drift sign. |
-| `CoherenceDDM` | Drift-diffusion emission with drift linear in signed coherence. |
+| `CoherenceDDM` | Drift-diffusion emission with drift a power law of signed coherence, `k·sign(c)·\|c\|^γ`. |
 
 `logdensityof`, `rand`, and `fit!` for DDM emissions are provided by the
 package extension: run `using SequentialSamplingModels` to activate them.
+
+### Calcium emissions (controlled)
+
+| Name | Description |
+| --- | --- |
+| `CalciumEmission` | Calcium fluorescence emission for one HMM state: per-neuron firing rates plus shared `CalciumParams`. |
+| `CalciumParams` | Per-neuron AR coefficients, spike influx and noise variance, tied across states. |
+| `calcium_emissions(λ0, α, c, σ2; ...)` | Build one `CalciumEmission` per state from an `nneurons × nstates` rate matrix. |
+| `init_calcium(obs_seq, nstates, order; ...)` | Initialize `CalciumEmission`s from raw fluorescence. |
+| `lagged_controls(obs_seq, order; ...)` | Build the lagged-fluorescence control sequence. |
+| `rand_calcium(rng, init, trans, dists, n_t)` | Simulate a calcium AR-HMM. |
 
 ### ACDC model selection
 
@@ -92,17 +103,17 @@ release.
 
 ### Naming convention
 
-Any name prefixed with an underscore (`_newton_fit!`, `_emission_to_driver`,
-`_ddm_logpdf`, `_scatter_mstep!`, …) is private by construction and is not
-enumerated here. Unexported names without an underscore are also private; the
-notable ones are listed below because they appear in tutorials or internal
-docstrings.
+Any name prefixed with an underscore (`_newton_fit!`, `_ddm_logpdf`,
+`_scatter_mstep!`, …) is private by construction and is not enumerated here.
+Unexported names without an underscore are also private; the notable ones are
+listed below because they appear in tutorials or internal docstrings.
 
 ### ACDC plumbing (unexported, deliberately internal)
 
 These were unexported during the pre-0.1.0 API freeze to keep the selection
-surface minimal. Tutorials qualify them as `EmissionModels.stochastic_drivers`
-etc.; that spelling carries no stability guarantee.
+surface minimal (`_emission_to_driver` was never exported). Tutorials qualify
+them as `EmissionModels.stochastic_drivers` etc.; that spelling carries no
+stability guarantee.
 
 | Name | Role |
 | --- | --- |
@@ -110,6 +121,7 @@ etc.; that spelling carries no stability guarantee.
 | `StochasticDriverResult` | Container for recovered driver pools and usage. |
 | `ComponentDiscrepancy` | Abstract supertype of the discrepancy measures. |
 | `compute_discrepancy(disc, pool; rng)` | Score one driver pool; implement to add a custom measure. |
+| `_emission_to_driver(rng, dist, obs[, control])` | Recover one observation's drivers; add a method to support a custom emission (4-arg form for controlled emissions). |
 | `acdc_loss(result, ρ)` | Hinge loss underlying `acdc_select`. |
 | `get_critical_rho_values(results)` | Cutoff values at which the selection changes. |
 
@@ -125,5 +137,5 @@ etc.; that spelling carries no stability guarantee.
 Optimizer functors (`_BernoulliFGH`, `_PoissonFGH`, `_MultinomialFGH`,
 `_DDMNLL`, `_DDMFG`), lazy array views (`_ColumnElementView`, `_OneHot`,
 `_OneHotSeq`, `_ControlRowsMatrix`), EM workspaces, parameter pack/unpack
-transforms, and the ACDC driver-recovery methods (`_emission_to_driver` and
-friends) are implementation details of the fitting and selection routines.
+transforms, and ACDC driver-recovery helpers are implementation details of the
+fitting and selection routines.

@@ -50,7 +50,7 @@ All types implement the `HiddenMarkovModels` emission interface (`rand`, `logden
 | Type | Description |
 |------|-------------|
 | `MvT(μ, Σ, ν)` | Full-covariance multivariate Student's t. |
-| `MvTDiag(μ, σ², ν)` | Diagonal-covariance multivariate Student's t. |
+| `MvTDiag(μ, σ², ν)` | Multivariate Student's t with diagonal scale `σ²`. |
 
 ### GLM emissions (observation depends on a control vector)
 
@@ -73,7 +73,7 @@ of them support regularization via priors:
 glm = GaussianGLM(β, 1.0, RidgePrior(0.5))  # L2 regularization
 ```
 
-Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` (design matrix `X`) maps latent states to the regression covariates. Since the GLMs subtype `ControlledEmission`, a vector of them also works directly as the emissions of a `ControlledEmissionHMM`.
+Each GLM is fit via `fit!(glm, y, w; control_seq=X)`, where `control_seq` is the n×p design matrix `X` of covariates. Since the GLMs subtype `ControlledEmission`, a vector of them also works directly as the emissions of a `ControlledEmissionHMM`.
 
 ### DDM emissions (two-alternative forced choice)
 
@@ -110,7 +110,7 @@ swaps the truncated Poisson sum for an analytic Gaussian marginal.
 
 ## ACDC model selection
 
-The Accumulated Cutoff Discrepancy Criterion (ACDC) picks the number of hidden states without penalizing likelihood by parameter count. It inverts each fitted emission through the probability integral transform to recover per-state "stochastic drivers", which are uniform when the model is well specified, and selects the smallest state count whose per-state discrepancies from uniform all fall below a cutoff.
+The Accumulated Cutoff Discrepancy Criterion (ACDC) picks the number of hidden states without penalizing likelihood by parameter count. It inverts each fitted emission through the probability integral transform to recover per-state "stochastic drivers", which are uniform when the model is well specified, and selects the state count minimizing the accumulated loss Σₖ max(0, D̂ₖ − ρ) at cutoff ρ, breaking ties toward fewer states.
 
 ```julia
 using EmissionModels, HiddenMarkovModels, Distributions
@@ -119,11 +119,16 @@ hmm = HMM([0.5, 0.5], [0.95 0.05; 0.05 0.95],
           [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
 _, obs_seq = rand(hmm, 3000)
 
-result = component_discrepancies(hmm, obs_seq, KSDiscrepancy())
-K = acdc_select([result], 0.05)
+results = map(1:3) do K
+    trans = K == 1 ? ones(1, 1) : [i == j ? 0.9 : 0.1 / (K - 1) for i in 1:K, j in 1:K]
+    dists = [Normal(quantile(obs_seq, (2k - 1) / (2K)), 1.0) for k in 1:K]
+    hmm_est, _ = baum_welch(HMM(fill(1 / K, K), trans, dists), obs_seq)
+    component_discrepancies(hmm_est, obs_seq, KSDiscrepancy())
+end
+K = acdc_select(results, 0.05)
 ```
 
-It works with any `AbstractHMM` whose emissions are standard `Distributions` objects or the types in this package (including the GLMs, via their covariates). Several discrepancy measures are available: `KSDiscrepancy`, `KLDiscrepancy`, `WassersteinDiscrepancy`, `MMDDiscrepancy`, and `SquaredErrorDiscrepancy`.
+It works with any `AbstractHMM` whose emissions are standard `Distributions` objects or any emission type in this package except `CalciumEmission` (including the GLMs, via their covariates). Several discrepancy measures are available: `KSDiscrepancy`, `KLDiscrepancy`, `WassersteinDiscrepancy`, `MMDDiscrepancy`, and `SquaredErrorDiscrepancy`.
 
 ## Creating custom emission models
 

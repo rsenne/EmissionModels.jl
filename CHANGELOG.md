@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MvGaussianGLM` throws `ArgumentError` for priors whose Hessian is not
   isotropic; previously any constant-Hessian prior was accepted (#77).
 
-## [0.1.0]
+### Fixed
+
+- Documentation drift after the calcium and ACDC additions: API.md lists the
+  calcium exports, ACDC docs describe the hinge-loss selection rule, and
+  `MvTDiag` docs call `σ²` the diagonal scale (#95).
+
+## [0.1.0] - 2026-08-14
 
 Initial feature set, targeting the first registered release (0.1.0). Every
 emission type implements the same interface — `logdensityof`, `rand`/`rand!`,
@@ -24,17 +30,15 @@ for Baum-Welch EM.
 
 ### Added
 
-- Calcium emission model from Keeley, Zoltowski, Charles, and Pillow (eLife
-  220266), including simulation and fitting support.
 - **Static emissions**: zero-inflated Poisson (`PoissonZeroInflated`) and
   multivariate Student-t with full (`MvT`) or diagonal (`MvTDiag`) scale,
   including weighted maximum-likelihood fitting of the degrees of freedom.
 - **Controlled (GLM) emissions** subtyping HiddenMarkovModels.jl's
   `ControlledEmission`: `GaussianGLM`, `BernoulliGLM`, `PoissonGLM`,
   `MultinomialGLM`, and multivariate `MvGaussianGLM`, `MvBernoulliGLM`,
-  `MvPoissonGLM`. Fitting uses Newton/LBFGS via Optim.jl with optional
-  regularization through `NoPrior`/`RidgePrior` (`AbstractPrior` is the
-  extension point).
+  `MvPoissonGLM`. Gaussian GLMs fit in closed form (weighted least squares);
+  the rest use Newton via Optim.jl. All take optional regularization through
+  `NoPrior`/`RidgePrior` (`AbstractPrior` is the extension point).
 - **DDM emissions** via a package extension on
   [SequentialSamplingModels.jl](https://github.com/itsdfish/SequentialSamplingModels.jl)
   (weak dependency): `StimulusCodedDDM` and `CoherenceDDM` drift-diffusion
@@ -52,10 +56,14 @@ for Baum-Welch EM.
   (probability-integral transform), scored with `KSDiscrepancy`,
   `KLDiscrepancy`, `WassersteinDiscrepancy`, `SquaredErrorDiscrepancy`, or
   `MMDDiscrepancy`.
+- Type genericity (#63): parameters in `Float32` (or AD dual numbers) keep their
+  element type through fitting and ACDC driver recovery instead of widening to
+  `Float64`.
 - Allocation-minimal density and sampling hot paths, with `rand!` for in-place
   sampling and allocation regression tests enforcing the budgets.
 - Documentation: Documenter.jl site with per-model pages, Literate.jl
-  tutorials (basics, ACDC, DDM-HMM) whose code runs as part of the test
-  suite, and a top-level [API.md](API.md) recording the frozen 0.1.0 surface.
+  tutorials (basics, GLM, DDM-HMM, calcium, ACDC) whose code runs as part of
+  the test suite, and a top-level [API.md](API.md) recording the frozen 0.1.0
+  surface.
 - Infrastructure: AirspeedVelocity.jl benchmark suite and the unregistered
   `libs/EmissionModelsTest` package of shared test recipes.
