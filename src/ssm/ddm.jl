@@ -368,14 +368,16 @@ function StatsAPI.fit!(
 
     θ = _pack(d, rt_min)
     nll = _DDMNLL(d, obs_seq, weight_seq, control_seq, rt_min)
+    # A τ just below rt_min can still underflow the fastest trial's density; LBFGS
+    # cannot leave an infinite start, so fall back to τ = rt_min / 2.
+    isfinite(nll(θ)) || (θ[end] = logit(T(0.5)))
     fg = _DDMFG(nll, ForwardDiff.GradientConfig(nll, θ))
     od = OnceDifferentiable(only_fg!(fg), θ)
     result = optimize(od, θ, LBFGS(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
     if isfinite(Optim.minimum(result))
         _setparams!(d, _unpack(d, Optim.minimizer(result), rt_min))
     else
-        @warn "DDM fit! found no finite-likelihood optimum; keeping current parameters" maxlog =
-            1
+        @warn "DDM fit!: no finite-likelihood optimum; parameters unchanged" maxlog = 1
     end
     return d
 end

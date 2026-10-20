@@ -212,7 +212,11 @@ const EM = EmissionModels
         rt_min = minimum(o -> o.rt, obs)
         @test rt_min < 0.3
         ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
-        for d in (StimulusCodedDDM(), StimulusCodedDDM(; ν=1.0, α=1.0, z=0.5, τ=1.0))
+        for d in (
+            StimulusCodedDDM(),
+            StimulusCodedDDM(; ν=3.0, α=2.0, z=0.5, τ=1.0),
+            StimulusCodedDDM(; ν=1.0, α=1.0, z=0.5, τ=(1 - 1e-6) * rt_min),
+        )
             d0 = deepcopy(d)
             @test_logs fit!(d, obs, ones(n); control_seq=controls)
             @test (d.ν, d.α, d.z, d.τ) != (d0.ν, d0.α, d0.z, d0.τ)
