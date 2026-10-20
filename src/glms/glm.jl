@@ -885,8 +885,9 @@ function StatsAPI.fit!(
         end
     end
     Σ_new ./= wsum
-    #= Same floor as the univariate σ2: with fewer than p + k effective
-       observations the residuals cannot span ℝᵏ and Σ_new is singular. =#
+    #= Same magnitude as the univariate σ2 floor, but added to the diagonal
+       rather than clamped: with fewer than p + k effective observations Σ_new
+       is singular even when its diagonal entries are large. =#
     var_floor = _variance_floor(T)
     for j in 1:k
         Σ_new[j, j] += var_floor
@@ -896,9 +897,8 @@ function StatsAPI.fit!(
     Σ_chol_new = cholesky(Symmetric(Σ_new, :L); check=false)
     issuccess(Σ_chol_new) || throw(
         ArgumentError(
-            "Residual covariance Σ is not positive definite: at least one " *
-            "output dimension has zero (or perfectly collinear) residual " *
-            "variance. Check `obs_seq` for degenerate output columns.",
+            "Residual covariance Σ is non-finite or numerically indefinite. " *
+            "Check `obs_seq` and `control_seq` for NaN/Inf or extreme scale.",
         ),
     )
 

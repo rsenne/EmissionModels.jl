@@ -341,9 +341,9 @@ end
         g = MvGaussianGLM(zeros(T, 2, 2), Matrix{T}(I, 2, 2))
         fit!(g, ys, w; control_seq=X)
         @test eltype(g.Σ) === T
-        @test isposdef(Symmetric(g.Σ))
         @test isfinite(g.logdetΣ)
-        @test all(diag(g.Σ_chol.L) .> 0)
+        @test all(diag(g.Σ_chol.L) .>= 0.9 * sqrt(EmissionModels._variance_floor(T)))
+        @test g.Σ_chol.L * g.Σ_chol.L' ≈ g.Σ
         @test isfinite(logdensityof(g, ys[1]; control_seq=X[1, :]))
     end
 
@@ -360,4 +360,5 @@ end
     Σ_cf = (R' * Diagonal(w) * R) ./ sum(w)
     @test g.B ≈ B_cf atol = 1e-8
     @test g.Σ ≈ Σ_cf atol = 1e-7
+    @test diag(g.Σ) ≈ diag(Σ_cf) .+ EmissionModels._variance_floor(Float64) atol = 1e-12
 end
