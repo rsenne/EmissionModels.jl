@@ -327,3 +327,38 @@ end
     @test mv0.B == B_before
     @test mv0.Σ == Σ_before
 end
+
+@testset "MvGaussianGLM fit! floors Σ on sparse weights (#79)" begin
+    #= Weight on 3 of 20 points is fewer than p + k = 4 effective observations,
+       so the raw residual covariance is singular. =#
+    for T in (Float64, Float32)
+        rng79 = Random.MersenneTwister(1)
+        X = randn(rng79, T, 20, 2)
+        ys = [randn(rng79, T, 2) for _ in 1:20]
+        w = zeros(T, 20)
+        w[1:3] .= one(T)
+
+        g = MvGaussianGLM(zeros(T, 2, 2), Matrix{T}(I, 2, 2))
+        fit!(g, ys, w; control_seq=X)
+        @test eltype(g.Σ) === T
+        @test isfinite(g.logdetΣ)
+        @test all(diag(g.Σ_chol.L) .>= 0.9 * sqrt(EmissionModels._variance_floor(T)))
+        @test g.Σ_chol.L * g.Σ_chol.L' ≈ g.Σ
+        @test isfinite(logdensityof(g, ys[1]; control_seq=X[1, :]))
+    end
+
+    # On well-conditioned data the floor perturbs the closed form by ~sqrt(eps).
+    B_true = [0.5 -1.0; 1.0 0.5; -0.3 0.8]
+    X, ys, w = _synthetic_mvgaussian_glm(
+        Random.MersenneTwister(79), 500, 3, 2; B=B_true, Σ=[1.0 0.3; 0.3 1.5]
+    )
+    g = MvGaussianGLM(zeros(3, 2), Matrix(1.0I, 2, 2))
+    fit!(g, ys, w; control_seq=X)
+    Y = reduce(vcat, permutedims.(ys))
+    B_cf = (X' * Diagonal(w) * X) \ (X' * Diagonal(w) * Y)
+    R = Y - X * B_cf
+    Σ_cf = (R' * Diagonal(w) * R) ./ sum(w)
+    @test g.B ≈ B_cf atol = 1e-8
+    @test g.Σ ≈ Σ_cf atol = 1e-7
+    @test diag(g.Σ) ≈ diag(Σ_cf) .+ EmissionModels._variance_floor(Float64) atol = 1e-12
+end

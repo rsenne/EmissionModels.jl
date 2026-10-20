@@ -885,16 +885,20 @@ function StatsAPI.fit!(
         end
     end
     Σ_new ./= wsum
+    #= Same magnitude as the univariate σ2 floor, but added to the diagonal
+       rather than clamped: with fewer than p + k effective observations Σ_new
+       is singular even when its diagonal entries are large. =#
+    var_floor = _variance_floor(T)
+    for j in 1:k
+        Σ_new[j, j] += var_floor
+    end
 
-    #= Σ_new is Σwᵢ·rᵢrᵢᵀ / Σwᵢ, which is PSD by construction and PD whenever
-       the residuals span ℝᵏ. Failure means a degenerate output dimension
-       (zero variance), so error rather than silently regularize. =#
+    # Last resort: only non-finite or badly scaled residuals can still fail here.
     Σ_chol_new = cholesky(Symmetric(Σ_new, :L); check=false)
     issuccess(Σ_chol_new) || throw(
         ArgumentError(
-            "Residual covariance Σ is not positive definite: at least one " *
-            "output dimension has zero (or perfectly collinear) residual " *
-            "variance. Check `obs_seq` for degenerate output columns.",
+            "Residual covariance Σ is non-finite or numerically indefinite. " *
+            "Check `obs_seq` and `control_seq` for NaN/Inf or extreme scale.",
         ),
     )
 
