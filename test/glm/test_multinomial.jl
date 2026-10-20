@@ -278,7 +278,10 @@ end
         catch e
             e
         end
-        @test occursin("obs_seq[3][2]", err.msg)
+        @test err isa ArgumentError
+        @test err isa ArgumentError && occursin("obs_seq[3][2]", err.msg)
+        # Pins validation ahead of any all-zero-weight early return.
+        @test_throws ArgumentError fit!(glm, neg, zeros(4); control_seq=X)
         frac = [[1.0, 1.0, 3.0], [1.0, 1.5, 2.5], [1.0, 1.0, 3.0], [1.0, 1.0, 3.0]]
         @test_throws ArgumentError fit!(glm, frac, ones(4); control_seq=X)
 

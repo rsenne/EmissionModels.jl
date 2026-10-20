@@ -233,7 +233,10 @@ end
         catch e
             e
         end
-        @test occursin("obs_seq[3]", err.msg)
+        @test err isa ArgumentError
+        @test err isa ArgumentError && occursin("obs_seq[3]", err.msg)
+        # Pins validation ahead of any all-zero-weight early return.
+        @test_throws ArgumentError fit!(glm, [0.5, 1, 0, 0.5], zeros(4); control_seq=X)
 
         fit!(glm, [false, true, true, false], ones(4); control_seq=X)
         @test all(isfinite, glm.β)
@@ -359,7 +362,10 @@ end
         catch e
             e
         end
-        @test occursin("obs_seq[3]", err.msg)
+        @test err isa ArgumentError
+        @test err isa ArgumentError && occursin("obs_seq[3]", err.msg)
+        # Pins validation ahead of any all-zero-weight early return.
+        @test_throws ArgumentError fit!(glm, [-1, 2, 3, 1], zeros(4); control_seq=X)
 
         fit!(glm, [2.0, 3.0, 1.0, 0.0], ones(4); control_seq=X)
         @test all(isfinite, glm.β)
@@ -522,7 +528,10 @@ end
         catch e
             e
         end
-        @test occursin("obs_seq[3][2]", err.msg)
+        @test err isa ArgumentError
+        @test err isa ArgumentError && occursin("obs_seq[3][2]", err.msg)
+        # Pins validation ahead of any all-zero-weight early return.
+        @test_throws ArgumentError fit!(glm, obs, zeros(4); control_seq=X)
 
         fit!(glm, [[0.0, 1.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]], ones(4); control_seq=X)
         @test all(isfinite, glm.B)
@@ -664,7 +673,10 @@ end
         catch e
             e
         end
-        @test occursin("obs_seq[3][2]", err.msg)
+        @test err isa ArgumentError
+        @test err isa ArgumentError && occursin("obs_seq[3][2]", err.msg)
+        # Pins validation ahead of any all-zero-weight early return.
+        @test_throws ArgumentError fit!(glm, obs, zeros(4); control_seq=X)
 
         fit!(glm, [[2.0, 3.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]], ones(4); control_seq=X)
         @test all(isfinite, glm.B)
