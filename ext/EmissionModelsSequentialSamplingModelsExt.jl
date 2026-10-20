@@ -10,16 +10,19 @@ function EmissionModels._ddm_logpdf(
     ν::Real, α::Real, z::Real, τ::Real, choice::Real, rt::Real
 )
     T = float(promote_type(typeof(ν), typeof(α), typeof(z), typeof(τ), typeof(rt)))
-    # Cases SequentialSamplingModels.pdf rejects; here they have zero density.
     (choice == 1 || choice == 2) || return T(-Inf)
-    rt > τ || return T(-Inf)
+    #= Density floor (design choice, see `StimulusCodedDDM`): rt ≤ τ and
+       underflow cost log(1e-16), not -Inf, so EM can move τ past trials. =#
+    dfloor = T(EmissionModels._DDM_DENSITY_FLOOR)
+    lfloor = log(dfloor)
+    rt > τ || return lfloor
     #= Promote parameters and rt together before handing them to SSM: its
        series internals require one homogeneous element type, and mixed
        precisions (e.g. Float32 emission, Float64 rt) would MethodError.
        `float` only maps Integer inputs to a type where ±Inf is representable;
        every other Real, ForwardDiff duals (this is the path fit!
        differentiates), Float32, BigFloat, etc.pass through unchanged.
-       The series can also overflow at extreme parameters; treat both as
+       The series can also overflow at extreme parameters; treat that as
        zero density. =#
     p = try
         SequentialSamplingModels.pdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
@@ -28,9 +31,11 @@ function EmissionModels._ddm_logpdf(
            parameters) count as zero density. Re-raise programming errors such
            as MethodError so a real precision/dispatch bug is not masked. =#
         (e isa InterruptException || e isa MethodError) && rethrow()
-        return T(-Inf)
+        return lfloor
     end
-    return (isfinite(p) && p > 0) ? T(log(p)) : T(-Inf)
+    # max is Dual-safe; a non-finite series value counts as zero density.
+    isfinite(p) || return lfloor
+    return T(log(max(p, dfloor)))
 end
 
 function EmissionModels._ddm_rand(rng, ν::Real, α::Real, z::Real, τ::Real)

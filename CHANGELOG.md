@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Gaussian closed-form path effectively used `N(0, σ²λ⁻¹I)` (#77).
 - `MvGaussianGLM` throws `ArgumentError` for priors whose Hessian is not
   isotropic; previously any constant-Hessian prior was accepted (#77).
+- DDM emissions floor the first-passage density at `1e-16`, so `rt ≤ τ` gives
+  a finite log-density, and `fit!` constrains τ to the fixed box `[1e-3, 5]` s
+  instead of `(0, rt_min)`. DDM-HMM states can now separate in τ under
+  Baum-Welch, and `fit!` no longer stalls when the starting τ exceeds the
+  fastest RT (#116, #69).
+
 
 ### Fixed
 
