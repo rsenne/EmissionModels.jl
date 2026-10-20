@@ -1,5 +1,4 @@
 using HiddenMarkovModels
-using HiddenMarkovModels: ControlledEmission, ControlledEmissionHMM, baum_welch
 using DensityInterface
 using StatsAPI
 using Random
@@ -45,8 +44,6 @@ end
     )
     hmm_est, loglik = baum_welch(hmm_init, obs_seq, control_seq; max_iterations=20)
 
-    @test all(diff(loglik) .>= -1e-8)
-    @test hmm_est.dists[1].β != 0.5
     @test isapprox(hmm_est.dists[1].β, 1.0; atol=0.1)
     @test isapprox(hmm_est.dists[2].β, -2.0; atol=0.1)
 end

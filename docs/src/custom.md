@@ -103,4 +103,4 @@ _, obs_seq = rand(hmm, control_seq)
 hmm_est, loglik = baum_welch(hmm, obs_seq, control_seq)
 ```
 
-The GLM and DDM emissions in this package follow the same pattern.
+The GLM, DDM and calcium emissions in this package follow the same pattern.
