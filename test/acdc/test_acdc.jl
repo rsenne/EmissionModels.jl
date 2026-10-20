@@ -358,6 +358,23 @@ end
     @test acdc_select([r2, r3], 0.1) == 2
 end
 
+@testset "Single-sample pools and NaN discrepancies cannot win selection (#74)" begin
+    # A one-sample pool makes MMD and SquaredError NaN; it must score Inf instead.
+    pools = [rand(Random.MersenneTwister(5), 1, 300), reshape([0.3], 1, 1)]
+    sd = StochasticDriverResult(pools, [0.99, 0.01])
+    for disc in (MMDDiscrepancy(), SquaredErrorDiscrepancy())
+        res = component_discrepancies(sd, disc; rng=Random.MersenneTwister(2))
+        @test res.component_discrepancies[2] == Inf
+        @test isfinite(res.component_discrepancies[1])
+    end
+
+    good = ACDCResult(2, [0.05, 0.06], [0.5, 0.5])
+    bad = ACDCResult(3, [0.05, 0.06, NaN], [0.5, 0.49, 0.01])
+    @test acdc_loss(bad, 0.1) == Inf
+    @test acdc_select([good, bad], 0.1) == 2
+    @test acdc_loss(ACDCResult(1, Float32[NaN], Float32[1]), 0.1) === Inf32
+end
+
 @testset "MMD blocks keep the tail; sliced Wasserstein projections" begin
     rng = Random.MersenneTwister(23)
 
