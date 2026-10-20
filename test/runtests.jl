@@ -29,6 +29,9 @@ Pkg.develop(; path=joinpath(dirname(@__DIR__), "libs", "EmissionModelsTest"))
         include("glm/test_multinomial.jl")
         include("glm/test_controlled_hmm.jl")
     end
+    @testset "Custom emissions" begin
+        include("custom_emission.jl")
+    end
     @testset "Zero-inflated models" begin
         include("zeroinflated/test_poisson.jl")
     end
