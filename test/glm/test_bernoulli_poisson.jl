@@ -28,6 +28,27 @@ function _synthetic_poisson(rng, n, β_true; weights=:uniform)
     return X, y, w
 end
 
+# Mirrors the custom-prior example in docs/src/priors.md; keep the two in sync.
+struct LassoPrior{T} <: AbstractPrior
+    λ::T
+end
+
+EmissionModels.neglogprior(p::LassoPrior, β) = p.λ * sum(abs, β)
+
+function EmissionModels.neglogprior_grad!(p::LassoPrior, g, β)
+    for j in eachindex(β)
+        g[j] += p.λ * sign(β[j])
+    end
+end
+
+function EmissionModels.neglogprior_hess!(p::LassoPrior, H, β)
+    for j in eachindex(β)
+        if β[j] == 0
+            H[j, j] += 1e6
+        end
+    end
+end
+
 @testset "AbstractPrior" begin
     @testset "NoPrior" begin
         prior = NoPrior()
@@ -88,6 +109,20 @@ end
         @test g32 ≈ 0.1f0 .* b32.β
 
         @test_throws ArgumentError RidgePrior(-1.0)
+    end
+
+    @testset "custom LassoPrior (docs recipe) shrinks a zero coefficient" begin
+        rng = Random.MersenneTwister(93)
+        X, y, w = _synthetic_poisson(rng, 500, [1.0, 0.0, -0.5])
+
+        glm_none = PoissonGLM(zeros(3))
+        fit!(glm_none, y, w; control_seq=X)
+
+        glm_lasso = PoissonGLM(zeros(3), LassoPrior(20.0))
+        fit!(glm_lasso, y, w; control_seq=X)
+
+        @test all(isfinite, glm_lasso.β)
+        @test abs(glm_lasso.β[2]) < abs(glm_none.β[2])
     end
 end
 
