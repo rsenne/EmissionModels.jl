@@ -30,8 +30,11 @@ mutable struct PoissonZeroInflated{T<:Real}
     end
 end
 
-PoissonZeroInflated(λ::T, π::T) where {T<:Real} = PoissonZeroInflated{T}(λ, π)
-PoissonZeroInflated(λ::Real, π::Real) = PoissonZeroInflated(promote(λ, π)...)
+PoissonZeroInflated(λ::T, π::T) where {T<:AbstractFloat} = PoissonZeroInflated{T}(λ, π)
+function PoissonZeroInflated(λ::Real, π::Real)
+    T = float(promote_type(typeof(λ), typeof(π)))
+    return PoissonZeroInflated{T}(convert(T, λ), convert(T, π))
+end
 
 # DensityInterface implementation
 DensityInterface.DensityKind(::PoissonZeroInflated) = DensityInterface.HasDensity()
