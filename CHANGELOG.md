@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MvTDiag` docs call `σ²` the diagonal scale (#95).
 - Tied calcium M-step solved on partial statistics when `nshare` was left at its
   default, making Baum-Welch non-monotone (#71).
+- `KLDiscrepancy` and `MMDDiscrepancy` no longer blow up on the duplicate drivers
+  that `n_samples > 1` pooling creates; exact ties are collapsed into weighted
+  atoms (#75).
 
 ## [0.1.0] - 2026-08-14
 

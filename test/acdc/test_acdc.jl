@@ -280,6 +280,65 @@ end
     @test sum(size.(sd.ε_pools, 2)) == 200
 end
 
+@testset "Pooled n_samples passes: KL and MMD handle repeated drivers (issue #75)" begin
+    rng = Random.MersenneTwister(0)
+    hmm = HMM([0.5, 0.5], [0.95 0.05; 0.05 0.95], [Normal(-3.0, 1.0), Normal(3.0, 1.0)])
+    _, obs = rand(rng, hmm, 4000)
+    function maxdisc(disc, ns)
+        r = component_discrepancies(
+            hmm, obs, disc; n_samples=ns, rng=Random.MersenneTwister(1)
+        )
+        return maximum(r.component_discrepancies)
+    end
+
+    #= Confident posteriors repeat each continuous driver across pooled passes;
+       untreated, the duplicates zeroed kNN radii and KL reached ~28 at 10 passes. =#
+    kl1 = maxdisc(KLDiscrepancy(), 1)
+    # No-repeat pools take the unchanged single-pass path; the RNG stream varies by
+    # Julia version, so bound the value instead of pinning it.
+    @test 0 <= kl1 < 0.1
+    for ns in (2, 10)
+        kl = maxdisc(KLDiscrepancy(), ns)
+        @test kl < 0.2
+        @test kl < 3 * kl1
+    end
+    mmd1 = maxdisc(MMDDiscrepancy(), 1)
+    @test 0 <= mmd1 < 0.01
+    # A single repeated atom is far from uniform (MMD² ≈ 0.146 for 0.3).
+    @test compute_discrepancy(
+        MMDDiscrepancy(), fill(0.3, 1, 50); rng=Random.MersenneTwister(6)
+    ) > 0.05
+    # At the component level, one distinct driver repeated is too few samples.
+    sd1 = StochasticDriverResult(
+        [fill(0.3, 1, 50), rand(Random.MersenneTwister(7), 1, 50)], [0.5, 0.5]
+    )
+    r1 = component_discrepancies(sd1, MMDDiscrepancy(); rng=Random.MersenneTwister(6))
+    @test r1.component_discrepancies[1] == Inf
+    @test isfinite(r1.component_discrepancies[2])
+    for disc in (KSDiscrepancy(), WassersteinDiscrepancy())
+        @test maxdisc(disc, 5) ≈ maxdisc(disc, 1) atol = 0.02
+    end
+
+    # A pool repeated three times represents the same distribution.
+    for D in (1, 2)
+        P = rand(Random.MersenneTwister(3), D, 2000)
+        B = clamp.(0.5 .+ 0.05 .* randn(Random.MersenneTwister(5), D, 2000), 1e-6, 1 - 1e-6)
+        for X in (P, B)
+            X3 = hcat(X, X, X)
+            @test compute_discrepancy(KLDiscrepancy(), X3) ≈
+                compute_discrepancy(KLDiscrepancy(), X) rtol = 1e-10
+            # The reference is sized by pooled mass, so only Monte Carlo noise differs.
+            @test compute_discrepancy(MMDDiscrepancy(), X3; rng=Random.MersenneTwister(4)) ≈
+                compute_discrepancy(MMDDiscrepancy(), X; rng=Random.MersenneTwister(4)) rtol =
+                0.2 atol = 1e-3
+        end
+    end
+
+    @test_throws ArgumentError component_discrepancies(
+        hmm, obs, KSDiscrepancy(); n_samples=0
+    )
+end
+
 @testset "Reproducibility with a seeded rng" begin
     rng = Random.MersenneTwister(31)
     hmm = HMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], [Poisson(2.0), Poisson(15.0)])

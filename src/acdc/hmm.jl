@@ -25,7 +25,9 @@ posterior expected time spent in each state.
   `fill(nothing, length(obs_seq))`.
 - `seq_ends`: end indices when `obs_seq` concatenates multiple sequences; defaults
   to `(length(obs_seq),)`.
-- `n_samples::Int=1`: number of posterior sampling passes over the data.
+- `n_samples::Int=1`: number of posterior sampling passes over the data. The
+  passes are pooled, so for `n_samples > 1` each pool approximates the
+  responsibility-weighted driver distribution (Li et al. 2026, Eq. 15).
 - `rng::AbstractRNG=Random.default_rng()`: source of randomness for the posterior
   state sampling and the randomized PITs; seed it for reproducible drivers.
 
