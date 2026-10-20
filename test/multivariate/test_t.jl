@@ -624,3 +624,16 @@ end
     @test isapprox(Float64.(dist.μ), [1.0, -1.0]; atol=0.3)
     @test all(isfinite, dist.Σ)
 end
+
+@testset "fit! leaves parameters untouched when the Σ step throws (#80)" begin
+    # Identical observations give a zero scatter matrix, so the Σ Cholesky fails.
+    dist = MvT([5.0, 5.0], [2.0 0.5; 0.5 1.0], 5.0)
+    μ0, Σ0, ν0 = copy(dist.μ), copy(dist.Σ), dist.ν
+    L0, ld0 = copy(dist.Σ_chol.factors), dist.logdetΣ
+    @test_throws ArgumentError fit!(dist, [[1.0, 2.0] for _ in 1:20], ones(20))
+    @test dist.μ == μ0
+    @test dist.Σ == Σ0
+    @test dist.ν == ν0
+    @test dist.Σ_chol.factors == L0
+    @test dist.logdetΣ == ld0
+end

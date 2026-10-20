@@ -258,18 +258,20 @@ function StatsAPI.fit!(
             "drop collinear columns from `control_seq`.",
         ),
     )
-    copyto!(reg.β, XWy)
-    ldiv!(F, reg.β)
+    # Solve into XWy and commit β only once σ2 is computed, so a throw leaves reg intact.
+    β_new = ldiv!(F, XWy)
 
     sw_r2 = zero(T)
     for i in 1:n
         x_i = view(control_seq, i, :)
-        r_i = T(obs_seq[i]) - dot(reg.β, x_i)
+        r_i = T(obs_seq[i]) - dot(β_new, x_i)
         sw_r2 += T(weight_seq[i]) * r_i * r_i
     end
     # Type-aware variance floor shared with the diagonal-t M-step (see
     # `_variance_floor`): a perfect fit (e.g. n ≤ p) would otherwise set σ2 = 0.
-    reg.σ2 = max(sw_r2 / wsum, _variance_floor(T))
+    σ2_new = max(sw_r2 / wsum, _variance_floor(T))
+    copyto!(reg.β, β_new)
+    reg.σ2 = σ2_new
 
     return reg
 end
@@ -932,7 +934,9 @@ function StatsAPI.fit!(
     # leave the emission unchanged rather than erroring, matching DDM `fit!`.
     wsum > 0 || return glm
 
-    _solve_mvgaussian_B!(glm.prior, glm.B, XWX, XWY, glm.Σ)
+    #= Solve into XWY (both solvers read XWY in full before writing B, so the
+       alias is safe); B is committed only after the Σ update succeeds. =#
+    B_new = _solve_mvgaussian_B!(glm.prior, XWY, XWX, XWY, glm.Σ)
 
     #= Σ M-step: Σ = Σᵢ wᵢ (yᵢ - Bᵀxᵢ)(yᵢ - Bᵀxᵢ)ᵀ / Σwᵢ. Computes residuals
        on the fly into a length-k buffer, then accumulates outer products into
@@ -946,7 +950,7 @@ function StatsAPI.fit!(
         for j in 1:k
             rj = T(obs_i[j])
             for a in 1:p
-                rj -= glm.B[a, j] * x_i[a]
+                rj -= B_new[a, j] * x_i[a]
             end
             r[j] = rj
         end
@@ -979,6 +983,7 @@ function StatsAPI.fit!(
         ),
     )
 
+    copyto!(glm.B, B_new)
     copyto!(glm.Σ, Σ_new)
     glm.Σ_chol = Σ_chol_new
     glm.logdetΣ = logdet(glm.Σ_chol)

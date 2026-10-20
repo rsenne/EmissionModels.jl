@@ -572,3 +572,30 @@ end
         @test norm(X' * X * mv.B + λ * mv.B * mv.Σ - X' * Y) < 1.0f-4 * norm(X' * Y)
     end
 end
+
+@testset "fit! leaves parameters untouched when it throws (#80)" begin
+    #= Identical large-scale output columns make Σ singular, so B must not be
+       committed before Σ is checked. The trigger must stay singular after the
+       Σ diagonal floor (#79). =#
+    rng80 = Random.MersenneTwister(1)
+    X = randn(rng80, 20, 2)
+    ys = [(v = 1e9 * randn(rng80); [v, v]) for _ in 1:20]
+    w = ones(20)
+    mv = MvGaussianGLM([0.1 0.2; 0.3 0.4], [2.0 0.5; 0.5 1.0])
+    B0, Σ0 = copy(mv.B), copy(mv.Σ)
+    L0, ld0 = copy(mv.Σ_chol.factors), mv.logdetΣ
+    @test_throws ArgumentError fit!(mv, ys, w; control_seq=X)
+    @test mv.B == B0
+    @test mv.Σ == Σ0
+    @test mv.Σ_chol.factors == L0
+    @test mv.logdetΣ == ld0
+
+    #= Guard against future reordering, not a reproduction: the singular-XᵀWX
+       throw currently precedes any write to β or σ2. =#
+    g = GaussianGLM([0.5, -1.0], 2.0)
+    β0, σ20 = copy(g.β), g.σ2
+    Xd = hcat(X[:, 1], zeros(20))
+    @test_throws ArgumentError fit!(g, randn(rng80, 20), ones(20); control_seq=Xd)
+    @test g.β == β0
+    @test g.σ2 == σ20
+end
