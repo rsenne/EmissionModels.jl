@@ -2,7 +2,7 @@
   AirspeedVelocity.jl benchmark suite. Covers the three hot paths hit inside
   an HMM EM loop i.e., logdensityof (every forward/backward step), rand/rand!
   (simulation), and fit! (per state per outer iteration) for each emission
-  model. 
+  model.
 =#
 include(joinpath(@__DIR__, "utils.jl"))
 
@@ -84,7 +84,7 @@ MODELS = [
     (
         name="MvTDiag",
         model=MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0),
-        fresh=() -> MvTDiag([0.0, 0.0], [1.0, 1.0], 5.0),
+        fresh=() -> MvTDiag([1.0, -1.0], [2.0, 2.0], 5.0),
         controlled=false,
         buffer=zeros(2),
     ),

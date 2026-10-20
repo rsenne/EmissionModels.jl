@@ -1,5 +1,5 @@
 #=
-  Generic benchmark fucntions. Each model is described by a spec NamedTuple:
+  Benchmark spec fields:
 
     name       display name used as the suite key
     model      a parameterized instance used for logdensityof/rand and to
@@ -10,18 +10,10 @@
     controlled whether the model takes a control_seq (GLMs) or not
     buffer     preallocated output vector for multivariate rand!, or nothing
                for scalar-observation models benchmarked via rand
-
-  `add_model_benchmarks!` registers logdensityof / rand(!) / fit! benchmarks
-  for one spec. cfg carries the shared rng, control vector x, design matrix X,
-  and weights w.
-
-  Models whose control is specific to the timestep rather than a shared design
-  matrix (calcium's lagged fluorescence, the DDM's per-trial stimulus) carry
-  their own simulated data and are registered by
-  `add_ctrl_seq_benchmarks!` instead; those specs replace `controlled` with
-
-    obs        observation sequence, one entry per timestep
-    controls   matching control sequence, `controls[t]` generated `obs[t]`
+    obs        (add_ctrl_seq_benchmarks! only, replaces controlled)
+               observation sequence, one entry per timestep
+    controls   (add_ctrl_seq_benchmarks! only) matching control sequence,
+               `controls[t]` generated `obs[t]`
 =#
 using BenchmarkTools
 using EmissionModels
