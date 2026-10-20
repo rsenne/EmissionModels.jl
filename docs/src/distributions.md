@@ -55,12 +55,12 @@ lp = logdensityof(dist, x)
 
 ### `MvTDiag(μ, σ², ν)`
 
-Diagonal-covariance multivariate Student's t-distribution (more efficient for high dimensions).
+Multivariate Student's t-distribution with diagonal scale (more efficient for high dimensions).
 
 | Field | Description |
 |-------|-------------|
 | `μ` | Location vector. |
-| `σ²` | Vector of diagonal variances (all positive). |
+| `σ²` | Vector of diagonal scale entries (all positive). |
 | `ν` | Degrees of freedom (> 0). |
 
 **Example:**
@@ -80,8 +80,9 @@ fit!(dist, obs_seq, weight_seq; max_iter=100, tol=1e-6, fix_nu=false)
 - The E-step posterior weights depend on the current Mahalanobis distance.
 - The M-step updates ``μ``, the scale (``Σ`` or ``σ²``), and optionally ``ν``.
 - Pass `fix_nu=true` to keep the degrees of freedom fixed during fitting.
-- If the observations are degenerate (zero variance along some axis), the
-  scale update throws an `ArgumentError` rather than silently regularizing.
+- If the observations are degenerate (zero variance along some axis), `MvT`'s
+  scale update throws an `ArgumentError`; `MvTDiag` silently floors each `σ²`
+  entry at `sqrt(eps(T))`.
 
 ## API Reference
 

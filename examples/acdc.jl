@@ -24,8 +24,8 @@ If a fitted model is correctly specified, the probability integral transform
 (PIT) of each observation under its generating emission is uniform on
 $[0, 1]$. ACDC recovers these *stochastic drivers* state by state, scores each
 state by the discrepancy of its drivers from uniformity, and selects the
-smallest number of states whose scores all fall below a cutoff $\rho$. Unlike
-AIC or BIC, no parameter count is involved.
+number of states minimizing $\sum_k \max(0, \hat{D}_k - \rho)$ for a cutoff
+$\rho$. Unlike AIC or BIC, no parameter count is involved.
 
 Let us generate data from a three-state Gaussian HMM.
 =#
@@ -82,8 +82,7 @@ end
 #=
 Underfitted models leave clearly non-uniform drivers, while the three-state
 model passes. [`acdc_select`](@ref) turns these scores into a choice: it
-minimizes the accumulated loss $\sum_k \max(0, \hat{D}_k - \rho)$, breaking
-ties in favor of fewer states (which is how an overfitted but well-calibrated
+minimizes this loss, breaking ties in favor of fewer states (which is how an overfitted but well-calibrated
 four-state model loses to the three-state one).
 =#
 

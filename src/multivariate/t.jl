@@ -95,17 +95,17 @@ end
 """
     MvTDiag{T<:Real}
 
-Multivariate Student's t-distribution with diagonal covariance matrix.
+Multivariate Student's t-distribution with diagonal scale matrix.
 
 # Fields
 - `μ::Vector{T}`: Location vector (mean for ν > 1)
-- `σ²::Vector{T}`: Diagonal variances (all positive)
+- `σ²::Vector{T}`: Diagonal of the scale matrix (all positive)
 - `ν::T`: Degrees of freedom (ν > 0)
 
 # Constructor
     MvTDiag(μ, σ², ν)
 
-Create a multivariate t-distribution with location `μ`, diagonal variances `σ²`,
+Create a multivariate t-distribution with location `μ`, diagonal scale `σ²`,
 and degrees of freedom `ν`.
 
 # Examples

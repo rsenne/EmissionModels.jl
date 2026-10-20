@@ -10,14 +10,15 @@ likelihood by parameter count (AIC/BIC), ACDC scores each state by how far its
 If a fitted model is correctly specified, the probability integral transform
 (PIT) of each observation under its generating emission is uniform on ``[0,1]``.
 ACDC recovers these drivers per state, measures their discrepancy from
-``U([0,1]^D)``, and selects the smallest number of states whose per-state
-discrepancies all fall below a cutoff ``\rho``.
+``U([0,1]^D)``, and selects the number of states minimizing the accumulated loss
+``\sum_k \max(0, \hat{D}_k - \rho)`` at cutoff ``\rho``, breaking ties toward
+fewer states.
 
 This works with any `AbstractHMM` from
 [HiddenMarkovModels.jl](https://github.com/JuliaStats/HiddenMarkovModels.jl) whose
 emissions are standard `Distributions` (continuous via the CDF, discrete via a
-randomized PIT, `MvNormal` via the Cholesky-Rosenblatt transform). The HMM
-method loads automatically once `HiddenMarkovModels` is imported.
+randomized PIT, `MvNormal` via the Cholesky-Rosenblatt transform) or emission
+types from this package, except `CalciumEmission`.
 
 ## Example
 
@@ -28,11 +29,16 @@ hmm = HMM([0.5, 0.5], [0.95 0.05; 0.05 0.95],
           [Normal(-4.0, 1.0), Normal(4.0, 1.0)])
 _, obs_seq = rand(hmm, 3000)
 
-# Per-state discrepancy from uniform; small means well specified.
-result = component_discrepancies(hmm, obs_seq, KSDiscrepancy())
+# Fit K = 1, 2, 3 and score each state's drivers; small means well specified.
+results = map(1:3) do K
+    trans = K == 1 ? ones(1, 1) : [i == j ? 0.9 : 0.1 / (K - 1) for i in 1:K, j in 1:K]
+    dists = [Normal(quantile(obs_seq, (2k - 1) / (2K)), 1.0) for k in 1:K]
+    hmm_est, _ = baum_welch(HMM(fill(1 / K, K), trans, dists), obs_seq)
+    component_discrepancies(hmm_est, obs_seq, KSDiscrepancy())
+end
 
 # Pick the number of states with smallest ACDC loss at cutoff ρ.
-K = acdc_select([result], 0.05)
+K = acdc_select(results, 0.05)
 ```
 
 To score a candidate set of fitted models, build one [`ACDCResult`](@ref) per
@@ -44,8 +50,10 @@ at which the selection changes.
 
 To use ACDC with an emission type that is not a standard `Distributions` object,
 add a method `EmissionModels._emission_to_driver(rng, dist, obs)` returning the
-driver vector in ``[0,1]``. Draw any randomness (e.g. for a randomized PIT) from
-`rng` so driver recovery stays reproducible.
+driver vector in ``[0,1]``; for a controlled emission, add the 4-argument form
+`(rng, dist, obs, control)`. This hook is internal and unstable (see API.md).
+Draw any randomness (e.g. for a randomized PIT) from `rng` so driver recovery
+stays reproducible.
 
 ## API Reference
 
