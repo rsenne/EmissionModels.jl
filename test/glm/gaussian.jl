@@ -189,6 +189,24 @@ end
             B, [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
         )
         @test_throws ArgumentError MvGaussianGLM(B, [1.0 0.0; 0.0 -1.0])
+        @test_throws ArgumentError MvGaussianGLM(B, [1.0 0.9; 0.0 1.0])
+    end
+
+    @testset "Σ symmetry and cache refresh (#83)" begin
+        A = [1.0 0.2; -0.4 0.9]
+        S = A * A'
+        S[2, 1] = nextfloat(S[2, 1])  # symmetric only up to roundoff
+        @test MvGaussianGLM(zeros(2, 2), S).Σ == S
+        S32 = Float32.(A * A')
+        S32[2, 1] = nextfloat(S32[2, 1])
+        @test MvGaussianGLM(zeros(Float32, 2, 2), S32) isa MvGaussianGLM{Float32}
+
+        g = MvGaussianGLM(zeros(2, 2), Matrix(1.0I, 2, 2))
+        EmissionModels._set_scale!(g, Matrix(4.0I, 2, 2))
+        @test logdensityof(g, [0.3, -0.2]; control_seq=[1.0, 0.5]) ≈
+            logpdf(MvNormal(zeros(2), 4.0I(2)), [0.3, -0.2])
+        @test_throws ArgumentError EmissionModels._set_scale!(g, [1.0 0.9; 0.0 1.0])
+        @test_throws DimensionMismatch EmissionModels._set_scale!(g, [3.0;;])
     end
 
     @testset "DensityInterface" begin

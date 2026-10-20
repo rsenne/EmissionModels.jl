@@ -5,6 +5,33 @@
    Shared by the diagonal-t M-step and the Gaussian GLM WLS fit. =#
 _variance_floor(::Type{T}) where {T<:AbstractFloat} = sqrt(eps(T))
 
+#= Validate a full scale/covariance matrix and return its cached Cholesky and
+   logdet. Symmetry is checked to a relative sqrt(eps) so matrices that are
+   symmetric only up to floating-point roundoff are still accepted. =#
+function _scale_cache(Σ::Matrix{T}) where {T<:Real}
+    if !issymmetric(Σ)
+        tol = sqrt(eps(float(T))) * norm(Σ, Inf)
+        for j in axes(Σ, 2), i in 1:(j - 1)
+            abs(Σ[i, j] - Σ[j, i]) <= tol ||
+                throw(ArgumentError("Σ must be symmetric, got Σ[$i,$j] ≠ Σ[$j,$i]"))
+        end
+    end
+    Σ_chol = cholesky(Symmetric(Σ, :L); check=false)
+    issuccess(Σ_chol) || throw(ArgumentError("Σ must be positive definite"))
+    return Σ_chol, logdet(Σ_chol)
+end
+
+#= Replace the scale of an `MvT` or `MvGaussianGLM` and refresh its cached
+   Cholesky/logdet. Internal: writing to `d.Σ` directly leaves the cache stale. =#
+function _set_scale!(d, Σ::AbstractMatrix)
+    size(Σ) == size(d.Σ) || throw(DimensionMismatch("Σ size $(size(Σ)) ≠ $(size(d.Σ))"))
+    Σ_chol, logdetΣ = _scale_cache(convert(Matrix{eltype(d.Σ)}, Σ))
+    copyto!(d.Σ, Σ)
+    d.Σ_chol = Σ_chol
+    d.logdetΣ = logdetΣ
+    return d
+end
+
 """
     MvT{T<:Real}
 
@@ -12,7 +39,9 @@ Multivariate Student's t-distribution with full covariance matrix.
 
 # Fields
 - `μ::Vector{T}`: Location vector (mean for ν > 1)
-- `Σ::Matrix{T}`: Scale matrix (positive definite)
+- `Σ::Matrix{T}`: Scale matrix (symmetric positive definite). Read-only;
+  refreshed by `fit!`. Writing to it directly leaves the cached Cholesky
+  factor (`Σ_chol`) and `logdetΣ` stale.
 - `ν::T`: Degrees of freedom (ν > 0)
 
 # Constructor
@@ -48,10 +77,7 @@ mutable struct MvT{T<:Real}
         size(Σ) == (dim, dim) ||
             throw(DimensionMismatch("Σ must be $(dim)×$(dim), got $(size(Σ))"))
 
-        Σ_chol = cholesky(Symmetric(Σ, :L); check=false)
-        issuccess(Σ_chol) || throw(ArgumentError("Σ must be positive definite"))
-
-        logdetΣ = logdet(Σ_chol)
+        Σ_chol, logdetΣ = _scale_cache(Σ)
 
         #= Copy μ and Σ so the struct never aliases caller arrays: an external
            mutation of Σ would silently desync the cached Cholesky/logdetΣ. =#
