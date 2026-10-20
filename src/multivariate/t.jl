@@ -142,8 +142,11 @@ function _t_logpdf(ν, d, logdetΣ, mahal²)
     T = float(promote_type(typeof(ν), typeof(logdetΣ), typeof(mahal²)))
     νT = T(ν)
     half_νd = (νT + T(d)) / 2
+    #= Γ((ν+d)/2)/Γ(ν/2) via logbeta: the loggamma difference cancels
+       catastrophically at large ν (Float32 off by ~0.1 at ν = 1e6). =#
     log_norm =
-        loggamma(half_νd) - loggamma(νT / 2) - (T(d) / 2) * log(νT * T(π)) - T(logdetΣ) / 2
+        loggamma(T(d) / 2) - logbeta(νT / 2, T(d) / 2) - (T(d) / 2) * log(νT * T(π)) -
+        T(logdetΣ) / 2
     return log_norm - half_νd * log1p(T(mahal²) / νT)
 end
 
