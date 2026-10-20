@@ -544,10 +544,10 @@ function StatsAPI.fit!(
             if p.gaussian
                 #= Gaussian prior N(λ, λ) conjugate to the Gaussian
                    observation: the posterior over s is Gaussian in closed
-                   form. Clamp the mean at zero — the approximation has no
-                   nonnegativity constraint, but a negative rate does. =#
+                   form. Not clamped at zero: the density has no such
+                   constraint, and E[s²] > 0 keeps the λ update positive. =#
                 v = λ * σ2 / (σ2 + c * c * λ)
-                Es = max(v * (one(T) + c * resid / σ2), zero(T))
+                Es = v * (one(T) + c * resid / σ2)
                 Es2 = Es * Es + v
                 λ_num[n] += w * Es2
             else

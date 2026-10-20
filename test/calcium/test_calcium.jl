@@ -488,6 +488,24 @@ end
         @test max(mean(q .== sim.state_seq), mean(q .!= sim.state_seq)) > 0.95
     end
 
+    @testset "Gaussian EM is monotone at low rates (#70)" begin
+        # small λ puts E[s] near zero, where a clamp at zero broke monotonicity
+        rng = MersenneTwister(2)
+        dists = calcium_emissions([0.3 2.0], [0.9;;], [1.0], [0.3]; gaussian=true)
+        sim = rand_calcium(rng, [0.5, 0.5], [0.95 0.05; 0.05 0.95], dists, 800)
+        d0 = calcium_emissions([0.5 1.0], [0.8;;], [1.0], [0.5]; gaussian=true, fit_c=true)
+        hmm = ControlledEmissionHMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], d0)
+        _, lls = baum_welch(
+            hmm,
+            sim.obs_seq,
+            sim.control_seq;
+            seq_ends=[800],
+            max_iterations=100,
+            loglikelihood_increasing=false,
+        )
+        @test all(diff(lls) .>= -1e-8)
+    end
+
     @testset "init_calcium α override" begin
         rng = MersenneTwister(37)
         params = CalciumParams([0.9 0.9], [1.0, 1.0], [0.02, 0.02])
