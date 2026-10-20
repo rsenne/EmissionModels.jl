@@ -637,7 +637,9 @@ prior on `B` (Frobenius-norm penalty).
 
 # Fields
 - `B`: coefficient matrix of size `p × k`
-- `Σ`: residual covariance of size `k × k`
+- `Σ`: residual covariance of size `k × k` (symmetric positive definite).
+  Read-only; refreshed by `fit!`. Writing to it directly leaves the cached
+  Cholesky factor (`Σ_chol`) and `logdetΣ` stale.
 - `prior`: regularization prior on `B` (default `NoPrior()`)
 """
 mutable struct MvGaussianGLM{T<:Real,P<:AbstractPrior} <: AbstractGLM
@@ -673,12 +675,10 @@ function MvGaussianGLM(
         DimensionMismatch("Σ must be $(k)×$(k) for B with $(k) columns, got $(size(Σ))")
     )
 
-    Σ_chol = cholesky(Symmetric(Σ, :L); check=false)
-    issuccess(Σ_chol) || throw(ArgumentError("Σ must be positive definite"))
+    Σm = Matrix{T}(Σ)
+    Σ_chol, logdetΣ = _scale_cache(Σm)
 
-    return MvGaussianGLM{T,P}(
-        Matrix{T}(B), Matrix{T}(Σ), prior, Σ_chol, logdet(Σ_chol), p, k
-    )
+    return MvGaussianGLM{T,P}(Matrix{T}(B), Σm, prior, Σ_chol, logdetΣ, p, k)
 end
 
 function MvGaussianGLM(B::AbstractMatrix{T}, Σ::AbstractMatrix{T}) where {T<:AbstractFloat}

@@ -42,6 +42,26 @@ import StatsAPI: fit!
         @test_throws ArgumentError MvT(Float64[], [1.0;;], 5.0)  # empty μ
         @test_throws DimensionMismatch MvT([0.0, 0.0], [1.0;;], 5.0)  # wrong Σ size
         @test_throws ArgumentError MvT([0.0, 0.0], [1.0 0.5; 0.5 -1.0], 5.0)  # non-PD Σ
+        @test_throws ArgumentError MvT([0.0, 0.0], [1.0 0.9; 0.0 1.0], 5.0)  # non-symmetric Σ
+    end
+
+    @testset "Σ symmetry and cache refresh (#83)" begin
+        A = [1.0 0.2; -0.4 0.9]
+        S = A * A'
+        S[2, 1] = nextfloat(S[2, 1])  # symmetric only up to roundoff
+        @test MvT([0.0, 0.0], S, 5.0).Σ == S
+        S32 = Float32.(A * A')
+        S32[2, 1] = nextfloat(S32[2, 1])
+        @test MvT(zeros(Float32, 2), S32, 5.0f0) isa MvT{Float32}
+
+        d = MvT([0.0, 0.0], [1.0 0.0; 0.0 1.0], 5.0)
+        Σ4 = [4.0 1.0; 1.0 3.0]
+        EmissionModels._set_scale!(d, Σ4)
+        @test d.Σ == Σ4
+        ref = MvT([0.0, 0.0], Σ4, 5.0)
+        @test logdensityof(d, [0.3, -0.2]) ≈ logdensityof(ref, [0.3, -0.2])
+        @test_throws ArgumentError EmissionModels._set_scale!(d, [1.0 0.9; 0.0 1.0])
+        @test d.Σ == Σ4  # rejected update leaves the distribution untouched
     end
 
     @testset "DensityInterface" begin
