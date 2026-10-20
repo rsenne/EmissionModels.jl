@@ -64,7 +64,12 @@ Pkg.develop(; path=joinpath(dirname(@__DIR__), "libs", "EmissionModelsTest"))
     end
 
     @testset "Allocations" begin
-        include("allocations.jl")
+        # Prerelease Julia shifts GC/inlining, which can trip the hard byte budgets.
+        if isempty(VERSION.prerelease)
+            include("allocations.jl")
+        else
+            @info "Skipping allocation budgets on prerelease Julia $VERSION"
+        end
     end
 
     @testset "Code quality (Aqua.jl)" begin
