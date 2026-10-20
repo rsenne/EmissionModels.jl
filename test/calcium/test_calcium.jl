@@ -177,6 +177,57 @@ end
         @test pa.σ2 == pb.σ2
     end
 
+    @testset "length mismatches throw before accumulating" begin
+        rng = MersenneTwister(11)
+        dists = calcium_emissions([0.3 1.5; 1.5 0.3], [0.9 0.85], [1.0, 1.0], [0.05, 0.05])
+        sim = rand_calcium(rng, [0.5, 0.5], [0.95 0.05; 0.05 0.95], dists, 100)
+        p = CalciumParams([0.9 0.9], [1.0, 1.0], [0.1, 0.1])
+        e = CalciumEmission([0.5, 0.5], p)
+        w = ones(100)
+        obs_mat = reduce(vcat, permutedims.(sim.obs_seq))
+        ctrl_mat = reduce(vcat, permutedims.(sim.control_seq))
+
+        wsum0, XtX0, Xty0, yy0, ncalls0 = copy(p.wsum),
+        copy(p.XtX), copy(p.Xty), copy(p.yy),
+        p.ncalls
+        unchanged() =
+            p.wsum == wsum0 &&
+            p.XtX == XtX0 &&
+            p.Xty == Xty0 &&
+            p.yy == yy0 &&
+            p.ncalls == ncalls0
+
+        # short control_seq, vector-of-vectors and matrix layouts
+        @test_throws DimensionMismatch fit!(
+            e, sim.obs_seq, w; control_seq=sim.control_seq[1:50]
+        )
+        @test unchanged()
+        @test_throws DimensionMismatch fit!(e, obs_mat, w; control_seq=ctrl_mat[1:50, :])
+        @test unchanged()
+
+        # wrong control element length, including a ragged row past the first
+        bad_ctrl = [vcat(u, 0.0) for u in sim.control_seq]
+        @test_throws DimensionMismatch fit!(e, sim.obs_seq, w; control_seq=bad_ctrl)
+        ragged = copy(sim.control_seq)
+        ragged[60] = [1.0]
+        @test_throws DimensionMismatch fit!(e, sim.obs_seq, w; control_seq=ragged)
+        @test_throws DimensionMismatch fit!(
+            e, obs_mat, w; control_seq=hcat(ctrl_mat, zeros(100))
+        )
+        @test unchanged()
+
+        # obs element length N + 1
+        bad_obs = [vcat(y, 0.0) for y in sim.obs_seq]
+        @test_throws DimensionMismatch fit!(e, bad_obs, w; control_seq=sim.control_seq)
+        @test_throws DimensionMismatch fit!(
+            e, hcat(obs_mat, zeros(100)), w; control_seq=ctrl_mat
+        )
+        @test unchanged()
+
+        @test_throws DimensionMismatch rand(rng, e; control_seq=[1.0, 2.0, 3.0, 4.0, 5.0])
+        @test_throws DimensionMismatch rand(rng, e, [1.0])
+    end
+
     @testset "init_calcium moment initialization" begin
         rng = MersenneTwister(19)
         params = CalciumParams([0.90 0.80], [1.0, 1.0], [0.02, 0.02])
