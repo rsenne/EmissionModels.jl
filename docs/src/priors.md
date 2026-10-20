@@ -39,21 +39,23 @@ The L1 penalty is not differentiable at 0, so a smooth Newton solver needs a
 stand-in for the missing curvature:
 
 ```julia
-struct LassoPrior{T}
+using EmissionModels
+
+struct LassoPrior{T} <: AbstractPrior
     λ::T
 end
 
-neglogprior(p::LassoPrior, β) = p.λ * sum(abs, β)
+EmissionModels.neglogprior(p::LassoPrior, β) = p.λ * sum(abs, β)
 
-function neglogprior_grad!(p::LassoPrior, g, β)
+function EmissionModels.neglogprior_grad!(p::LassoPrior, g, β)
     for j in eachindex(β)
         g[j] += p.λ * sign(β[j])
     end
 end
 
-function neglogprior_hess!(p::LassoPrior, H, β)
-    # No curvature away from 0; add a large diagonal entry at exact zeros
-    # to keep the Newton step well-defined.
+function EmissionModels.neglogprior_hess!(p::LassoPrior, H, β)
+    # Fires only at an exact-zero start; Newton never lands on 0, so this
+    # gives no exact sparsity.
     for j in eachindex(β)
         if β[j] == 0
             H[j, j] += 1e6
@@ -62,8 +64,13 @@ function neglogprior_hess!(p::LassoPrior, H, β)
 end
 
 # Usage:
-glm = GaussianGLM(zeros(3), 1.0, LassoPrior(0.5))
+glm = PoissonGLM(zeros(3), LassoPrior(0.5))
 ```
+
+Use a Newton-fit GLM such as `PoissonGLM` or `BernoulliGLM`: the closed-form
+`GaussianGLM` path calls only `neglogprior_hess!` with a placeholder `β` (see
+[`neglogprior_hess!`](@ref)), so it supports only priors whose Hessian does not
+depend on `β`.
 
 ## API Reference
 
