@@ -364,16 +364,22 @@ const EM = EmissionModels
     end
 
     @testset "extension fallback hooks" begin
-        #= The src fallbacks hat a user without SequentialSamplingModels
-           loaded hits for any argument types stay reachable  =#
-        @test_throws "SequentialSamplingModels" EM._ddm_logpdf(
+        #= With the extension loaded, non-Real arguments fall through to the src
+           fallbacks, which must report a MethodError rather than claim that
+           SequentialSamplingModels is missing (#87). =#
+        @test_throws MethodError logdensityof(StimulusCodedDDM(), (1, missing), 1)
+        @test_throws MethodError logdensityof(StimulusCodedDDM(), (missing, 0.5), 1)
+        @test_throws MethodError EM._ddm_logpdf(
             nothing, nothing, nothing, nothing, nothing, nothing
         )
-        @test_throws "SequentialSamplingModels" EM._ddm_rand(
-            nothing, nothing, nothing, nothing, nothing
-        )
-        @test_throws "SequentialSamplingModels" EM._ddm_cdf(
+        @test_throws MethodError EM._ddm_rand(nothing, nothing, nothing, nothing, nothing)
+        @test_throws MethodError EM._ddm_cdf(
             nothing, nothing, nothing, nothing, nothing, nothing
         )
+
+        # The error a user without SequentialSamplingModels loaded sees.
+        err = EM._ssm_hook_error(EM._ddm_logpdf, (1.0, 1.0, 0.5, 0.2, 1, 0.5), false)
+        @test err isa ArgumentError
+        @test occursin("using SequentialSamplingModels", err.msg)
     end
 end
