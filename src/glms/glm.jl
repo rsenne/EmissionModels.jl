@@ -284,6 +284,13 @@ Base.@propagate_inbounds Base.getindex(c::_ColumnElementView, i::Integer) = c.se
    about 707 for Float64, 86 for Float32. =#
 @inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
 
+#= Tighter bound for sampling: Distributions' Poisson sampler rounds to Int, so
+   keep exp(η) ≤ typemax(Int)/2, leaving room for the draw's spread above λ. =#
+@inline _η_bound_rand(::Type{T}) where {T<:AbstractFloat} =
+    min(_η_bound(T), T(log(typemax(Int) / 2)))
+@inline _clamp_η_rand(η::T) where {T<:AbstractFloat} =
+    clamp(η, -_η_bound_rand(T), _η_bound_rand(T))
+
 #= Linear predictor η_j = Σ_r B[r,j]·x[r] for output column `j`, accumulated in
    type `Tη`. Factors out the inner loop repeated across every multivariate /
    multinomial `logdensityof`/`rand`/`rand!`; kept `@inline` so those hot paths
@@ -532,7 +539,8 @@ Log-linear (Poisson) regression emission for count observations.
 
 E[Y|x] = exp(xᵀβ). `fit!` minimizes the weighted negative log-posterior via
 Optim's Newton method with analytic gradient and Hessian. Any `AbstractPrior`
-composes without changes to the solver.
+composes without changes to the solver. η is clamped to ±log(typemax(Int)/2)
+before sampling so draws fit in `Int`.
 
 # Fields
 - `β`: coefficient vector (length p)
@@ -579,7 +587,7 @@ function DensityInterface.logdensityof(
 end
 
 function Random.rand(rng::AbstractRNG, glm::PoissonGLM; control_seq::AbstractVector{<:Real})
-    return rand(rng, Poisson(exp(dot(glm.β, control_seq))))
+    return rand(rng, Poisson(exp(_clamp_η_rand(float(dot(glm.β, control_seq))))))
 end
 
 """
@@ -1125,6 +1133,7 @@ end
     rand!(rng, glm::MvPoissonGLM, out; control_seq)
 
 In-place sample. `out` must be a length-`out_dim` integer vector.
+η is clamped to ±log(typemax(Int)/2) before sampling so draws fit in `Int`.
 """
 function Random.rand!(
     rng::AbstractRNG,
@@ -1143,7 +1152,7 @@ function Random.rand!(
     T = eltype(glm.B)
     for j in 1:(glm.out_dim)
         η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
-        out[j] = rand(rng, Poisson(exp(η)))
+        out[j] = rand(rng, Poisson(exp(_clamp_η_rand(η))))
     end
     return out
 end
