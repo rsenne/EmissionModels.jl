@@ -29,6 +29,13 @@ import StatsAPI: fit!
         @test eltype(dist2.Σ) == Float64
         @test dist2.ν isa Float64
 
+        # All-integer arguments promote to float (issue #82)
+        dist3 = MvT([0, 0], [1 0; 0 1], 5)
+        @test dist3 isa MvT{Float64}
+        fit!(dist3, [[0.1, 0.2], [0.3, -0.1], [-0.2, 0.4]], [1.0, 1.0, 1.0])
+        @test all(isfinite, dist3.μ)
+        @test isfinite(dist3.ν)
+
         # Invalid parameters
         @test_throws ArgumentError MvT([0.0, 0.0], [1.0 0.5; 0.5 1.0], -1.0)  # negative ν
         @test_throws ArgumentError MvT(Float64[], [1.0;;], 5.0)  # empty μ
@@ -255,6 +262,13 @@ end
         @test eltype(dist2.μ) == Float64
         @test eltype(dist2.σ²) == Float64
         @test dist2.ν isa Float64
+
+        # All-integer arguments promote to float (issue #82)
+        dist3 = MvTDiag([0, 0], [1, 1], 5)
+        @test dist3 isa MvTDiag{Float64}
+        fit!(dist3, [[0.1, 0.2], [0.3, -0.1], [-0.2, 0.4]], [1.0, 1.0, 1.0])
+        @test all(isfinite, dist3.μ)
+        @test isfinite(dist3.ν)
 
         # Invalid parameters
         @test_throws ArgumentError MvTDiag([0.0, 0.0], [1.0, 2.0], -1.0)  # negative ν
@@ -502,10 +516,16 @@ end
 
 @testset "Float32 type stability" begin
     dist = MvT(Float32[0, 0], Float32[1 0; 0 1], 5.0f0)
+    @test dist isa MvT{Float32}
     @test logdensityof(dist, Float32[0.1, 0.2]) isa Float32
 
     distd = MvTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
+    @test distd isa MvTDiag{Float32}
     @test logdensityof(distd, Float32[0.1, 0.2]) isa Float32
+
+    # Float32 mixed with integer arguments stays Float32.
+    @test MvT(Float32[0, 0], Float32[1 0; 0 1], 5) isa MvT{Float32}
+    @test MvTDiag(Float32[0, 0], Float32[1, 1], 5) isa MvTDiag{Float32}
 end
 
 @testset "ν M-step stays finite on near-Gaussian data" begin

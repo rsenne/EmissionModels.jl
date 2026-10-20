@@ -22,6 +22,13 @@ import StatsAPI: fit!
         @test dist2.λ isa Float64
         @test dist2.π isa Float64
 
+        # All-integer arguments promote to float (issue #82)
+        dist3 = PoissonZeroInflated(3, 0)
+        @test dist3 isa PoissonZeroInflated{Float64}
+        fit!(dist3, [0, 1, 2], [1.0, 1.0, 1.0])
+        @test isfinite(dist3.λ)
+        @test 0 ≤ dist3.π ≤ 1
+
         # Invalid parameters
         @test_throws ArgumentError PoissonZeroInflated(-1.0, 0.2)  # negative λ
         @test_throws ArgumentError PoissonZeroInflated(3.0, -0.1)  # π < 0
@@ -215,7 +222,8 @@ end
 
 @testset "Float32 type stability" begin
     dist = PoissonZeroInflated(3.0f0, 0.2f0)
-    @test dist.λ isa Float32
+    @test dist isa PoissonZeroInflated{Float32}
+    @test PoissonZeroInflated(3.0f0, 0) isa PoissonZeroInflated{Float32}
     # Every logdensityof branch must return the field type T (no Float64 leak
     # from loggamma or hardcoded literals).
     @test @inferred(logdensityof(dist, 2)) isa Float32   # x > 0 branch

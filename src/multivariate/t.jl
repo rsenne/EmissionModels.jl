@@ -59,10 +59,10 @@ mutable struct MvT{T<:Real}
     end
 end
 
-MvT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:Real} = MvT{T}(μ, Σ, ν)
+MvT(μ::Vector{T}, Σ::Matrix{T}, ν::T) where {T<:AbstractFloat} = MvT{T}(μ, Σ, ν)
 
 function MvT(μ::Vector, Σ::Matrix, ν::Real)
-    T = promote_type(eltype(μ), eltype(Σ), typeof(ν))
+    T = float(promote_type(eltype(μ), eltype(Σ), typeof(ν)))
     return MvT{T}(convert(Vector{T}, μ), convert(Matrix{T}, Σ), convert(T, ν))
 end
 
@@ -119,12 +119,12 @@ mutable struct MvTDiag{T<:Real}
     end
 end
 
-function MvTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:Real}
+function MvTDiag(μ::Vector{T}, σ²::Vector{T}, ν::T) where {T<:AbstractFloat}
     return MvTDiag{T}(μ, σ², ν)
 end
 
 function MvTDiag(μ::Vector, σ²::Vector, ν::Real)
-    T = promote_type(eltype(μ), eltype(σ²), typeof(ν))
+    T = float(promote_type(eltype(μ), eltype(σ²), typeof(ν)))
     return MvTDiag{T}(convert(Vector{T}, μ), convert(Vector{T}, σ²), convert(T, ν))
 end
 
