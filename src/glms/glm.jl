@@ -407,6 +407,8 @@ function _fit_glm_newton!(
     )
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
+    # Zero total weight: Newton would move β to the prior mode; leave it unchanged.
+    sum(weight_seq) > 0 || return β
 
     fgh = _GLMFGH(family, obs_seq, weight_seq, control_seq, prior)
     return _newton_fit!(β, fgh; max_iter=max_iter, gtol=gtol)
@@ -486,7 +488,7 @@ end
 Minimize the weighted negative log-posterior via Optim's Newton method. The
 objective is `Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the
 Bernoulli log-likelihood; gradient and Hessian are analytic, supplied through
-a fused `fgh!`.
+a fused `fgh!`. Zero total weight leaves the parameters unchanged.
 """
 function StatsAPI.fit!(
     glm::BernoulliGLM,
@@ -573,7 +575,7 @@ end
 Minimize the weighted negative log-posterior via Optim's Newton method. The
 objective is `Σᵢ wᵢ · ℓ(β; yᵢ, xᵢ) + neglogprior(prior, β)` where `ℓ` is the
 Poisson log-likelihood; gradient and Hessian are analytic, supplied through
-a fused `fgh!`.
+a fused `fgh!`. Zero total weight leaves the parameters unchanged.
 """
 function StatsAPI.fit!(
     glm::PoissonGLM,
@@ -988,7 +990,8 @@ end
 Fit each output dimension independently via Optim's Newton method. Each
 observation `obs_seq[i]` must be a length-`k` vector of 0/1 values.
 `_ColumnElementView` presents column `j` of the observations lazily, so no
-n-sized y-buffer is copied per column.
+n-sized y-buffer is copied per column. Zero total weight leaves the
+parameters unchanged.
 """
 function StatsAPI.fit!(
     glm::MvBernoulliGLM{T},
@@ -1013,6 +1016,8 @@ function StatsAPI.fit!(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
         )
     end
+
+    sum(weight_seq) > 0 || return glm
 
     β_buf = Vector{T}(undef, p)
     for j in 1:k
@@ -1139,7 +1144,8 @@ end
 Fit each output dimension independently via Optim's Newton method. Each
 observation `obs_seq[i]` must be a length-`k` vector of non-negative integers.
 `_ColumnElementView` presents column `j` of the observations lazily, so no
-n-sized y-buffer is copied per column.
+n-sized y-buffer is copied per column. Zero total weight leaves the
+parameters unchanged.
 """
 function StatsAPI.fit!(
     glm::MvPoissonGLM{T},
@@ -1164,6 +1170,8 @@ function StatsAPI.fit!(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
         )
     end
+
+    sum(weight_seq) > 0 || return glm
 
     β_buf = Vector{T}(undef, p)
     for j in 1:k
@@ -1487,7 +1495,8 @@ Minimize the weighted negative log-posterior via Optim's Newton method over
 the flattened `p × (K-1)` coefficient matrix. Each observation `obs_seq[i]`
 must be a length-`K` vector of non-negative counts; totals may vary across
 observations. Gradient and Hessian (with cross-category blocks) are analytic,
-supplied through a fused `fgh!`.
+supplied through a fused `fgh!`. Zero total weight leaves the parameters
+unchanged.
 """
 function StatsAPI.fit!(
     glm::MultinomialGLM{T},
@@ -1512,6 +1521,8 @@ function StatsAPI.fit!(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $K")
         )
     end
+
+    sum(weight_seq) > 0 || return glm
 
     k = K - 1
     # β is the column-major flattening of B, so copyto! round-trips exactly.
