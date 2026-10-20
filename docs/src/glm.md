@@ -93,6 +93,13 @@ GLM emissions are fit by minimizing the negative log-posterior (or weighted nega
 
 ``\ell(β) = -\sum_{i=1}^{n} w_i \, \log p(y_i \mid x_i, β) + \text{neglogprior}(β)``
 
+The prior means the same thing for every GLM: `RidgePrior(λ)` is
+``β \sim \mathcal{N}(0, λ^{-1} I)``. For the Gaussian GLMs the objective also
+depends on the noise variance, so `fit!` takes a conditional-maximisation (ECM)
+step: it solves for ``β`` at the current ``σ^2`` (``Σ`` for `MvGaussianGLM`),
+i.e. ``(X^\top W X + σ^2 λ I)\,β = X^\top W y``, then updates the variance from
+the new residuals. Repeated calls (as in Baum-Welch) converge to the joint MAP.
+
 ```julia
 # Gaussian is closed-form weighted least squares.
 fit!(glm, y_seq, w_seq; control_seq=X)

@@ -380,3 +380,195 @@ end
     @test g.Σ ≈ Σ_cf atol = 1e-7
     @test diag(g.Σ) ≈ diag(Σ_cf) .+ EmissionModels._variance_floor(Float64) atol = 1e-12
 end
+
+#= Issue #77: RidgePrior(λ) is β ~ N(0, λ⁻¹I) added to the weighted negative
+   log-likelihood for every GLM. The Gaussian closed form applies it at the
+   current σ²/Σ (an ECM step), so iterating fit! reaches the joint MAP. =#
+
+struct _ScaledRidge77 <: AbstractPrior
+    λ::Float64
+end
+EmissionModels.neglogprior(p::_ScaledRidge77, β) = p.λ * dot(β, β) / 2
+function EmissionModels.neglogprior_grad!(p::_ScaledRidge77, g, β)
+    return g .+= p.λ .* β
+end
+function EmissionModels.neglogprior_hess!(p::_ScaledRidge77, H, β)
+    for i in axes(H, 1)
+        H[i, i] += p.λ
+    end
+end
+
+struct _AnisoPrior77 <: AbstractPrior end
+EmissionModels.neglogprior(::_AnisoPrior77, β) = zero(eltype(β))
+EmissionModels.neglogprior_grad!(::_AnisoPrior77, g, β) = nothing
+function EmissionModels.neglogprior_hess!(::_AnisoPrior77, H, β)
+    for i in axes(H, 1)
+        H[i, i] += i
+    end
+end
+
+function _issue77_data(::Type{T}=Float64) where {T}
+    rng = MersenneTwister(1)
+    X = randn(rng, 200, 2)
+    y = X * [1.0, -2.0] .+ 3 .* randn(rng, 200)
+    return T.(X), T.(y)
+end
+
+#= Independent reference: profile σ² out of
+   (1/(2σ²))‖y − Xβ‖² + (n/2) log σ² + (λ/2)‖β‖² (σ̂² = RSS/n) and run Newton
+   on the profiled objective in β. =#
+function _profiled_ridge_map(X, y, λ)
+    n, p = size(X)
+    β = (X' * X) \ (X' * y)
+    for _ in 1:100
+        r = y - X * β
+        rss = dot(r, r)
+        g = -(n / rss) * (X' * r) + λ * β
+        Xr = X' * r
+        H = (n / rss) * (X' * X) - (2n / rss^2) * (Xr * Xr') + λ * I
+        β -= H \ g
+        norm(g) < 1e-13 && break
+    end
+    r = y - X * β
+    return β, dot(r, r) / n
+end
+
+# Central-difference gradient of β ↦ -Σ wᵢ log p(yᵢ | xᵢ, β) + neglogprior(β).
+function _neglogpost_grad(make_glm, prior, β, y, w, X; h=1e-6)
+    function f(b)
+        return -sum(
+            w[i] * logdensityof(make_glm(b), y[i]; control_seq=X[i, :]) for
+            i in eachindex(y)
+        ) + neglogprior(prior, b)
+    end
+    return map(eachindex(β)) do j
+        e = zeros(length(β))
+        e[j] = h
+        (f(β + e) - f(β - e)) / (2h)
+    end
+end
+
+@testset "RidgePrior has one meaning across GLMs (#77)" begin
+    @testset "one step from σ² = 1 matches the old (XᵀWX + λI) closed form" begin
+        # Relies on the starting σ² = 1, where σ²λ = λ.
+        rng = MersenneTwister(77)
+        X, y, w = _synthetic_gaussian_glm(
+            rng, 300, 3; β=[0.5, 1.0, -1.0], σ2=0.5, weights=:random
+        )
+        λ = 4.0
+        glm = GaussianGLM(zeros(3), 1.0, RidgePrior(λ))
+        fit!(glm, y, w; control_seq=X)
+        W = Diagonal(w)
+        @test glm.β ≈ (X' * W * X + λ * I) \ (X' * W * y) rtol = 1e-12
+    end
+
+    @testset "issue reproducer converges to the joint MAP" begin
+        X, y = _issue77_data()
+        n = length(y)
+        λ = 5.0
+        glm = GaussianGLM(zeros(2), 1.0, RidgePrior(λ))
+        for _ in 1:20
+            fit!(glm, y, ones(n); control_seq=X)
+        end
+        β̂, σ̂2 = glm.β, glm.σ2
+        @test (X' * X + σ̂2 * λ * I) * β̂ ≈ X' * y rtol = 1e-8
+        @test σ̂2 ≈ sum(abs2, y - X * β̂) / n rtol = 1e-10
+
+        β_ref, σ2_ref = _profiled_ridge_map(X, y, λ)
+        @test β̂ ≈ β_ref rtol = 1e-8
+        @test σ̂2 ≈ σ2_ref rtol = 1e-8
+        # The old (XᵀX + λI) solution is a different estimate on this data.
+        @test !isapprox(β̂, (X' * X + λ * I) \ (X' * y); rtol=1e-2)
+
+        # A custom prior with the same Hessian goes through the generic hook.
+        glm_c = GaussianGLM(zeros(2), 1.0, _ScaledRidge77(λ))
+        for _ in 1:20
+            fit!(glm_c, y, ones(n); control_seq=X)
+        end
+        @test glm_c.β ≈ β̂ rtol = 1e-12
+    end
+
+    @testset "Gaussian and Bernoulli minimise the same penalised objective" begin
+        X, y = _issue77_data()
+        n = length(y)
+        w = ones(n)
+        prior = RidgePrior(5.0)
+
+        glm = GaussianGLM(zeros(2), 1.0, prior)
+        for _ in 1:20
+            fit!(glm, y, w; control_seq=X)
+        end
+        σ̂2 = glm.σ2
+        g_gauss = _neglogpost_grad(b -> GaussianGLM(b, σ̂2), prior, glm.β, y, w, X)
+        @test norm(g_gauss) < 1e-5
+
+        yb = Int.(y .> 0)
+        bglm = BernoulliGLM(zeros(2), prior)
+        fit!(bglm, yb, w; control_seq=X)
+        g_bern = _neglogpost_grad(b -> BernoulliGLM(b), prior, bglm.β, yb, w, X)
+        @test norm(g_bern) < 1e-5
+    end
+
+    @testset "MvGaussianGLM solves the Sylvester stationarity" begin
+        rng = MersenneTwister(770)
+        B_true = [1.0 -0.5; 2.0 0.5; -1.0 1.5]
+        Σ_true = [2.0 0.8; 0.8 1.0]
+        X, obs, w = _synthetic_mvgaussian_glm(
+            rng, 150, 3, 2; B=B_true, Σ=Σ_true, weights=:random
+        )
+        Y = reduce(hcat, obs)'
+        W = Diagonal(w)
+        XWX = X' * W * X
+        XWY = X' * W * Y
+        λ = 30.0
+
+        # One step: stationarity holds at the Σ the step started from.
+        Σ0 = [1.5 -0.3; -0.3 0.7]
+        glm1 = MvGaussianGLM(zeros(3, 2), Σ0, RidgePrior(λ))
+        fit!(glm1, obs, w; control_seq=X)
+        @test XWX * glm1.B + λ * glm1.B * Σ0 ≈ XWY rtol = 1e-10
+
+        glm = MvGaussianGLM(zeros(3, 2), Matrix(1.0I, 2, 2), RidgePrior(λ))
+        for _ in 1:200
+            fit!(glm, obs, w; control_seq=X)
+        end
+        @test norm(XWX * glm.B + λ * glm.B * glm.Σ - XWY) < 1e-8 * norm(XWY)
+
+        glm0 = MvGaussianGLM(zeros(3, 2), Σ0, NoPrior())
+        fit!(glm0, obs, w; control_seq=X)
+        @test glm0.B ≈ XWX \ XWY rtol = 1e-12
+
+        glm_aniso = MvGaussianGLM(zeros(3, 2), Σ0, _AnisoPrior77())
+        @test_throws ArgumentError fit!(glm_aniso, obs, w; control_seq=X)
+
+        glm_c = MvGaussianGLM(zeros(3, 2), Σ0, _ScaledRidge77(λ))
+        fit!(glm_c, obs, w; control_seq=X)
+        @test glm_c.B ≈ glm1.B rtol = 1e-12
+    end
+
+    @testset "Float32 keeps its eltype" begin
+        X, y = _issue77_data(Float32)
+        n = length(y)
+        λ = 5.0f0
+        glm = GaussianGLM(zeros(Float32, 2), 1.0f0, RidgePrior(λ))
+        for _ in 1:20
+            fit!(glm, y, ones(Float32, n); control_seq=X)
+        end
+        @test eltype(glm.β) === Float32
+        @test glm.σ2 isa Float32
+        @test (X' * X + glm.σ2 * λ * I) * glm.β ≈ X' * y rtol = 1e-4
+        β_ref, _ = _profiled_ridge_map(Float64.(X), Float64.(y), Float64(λ))
+        @test glm.β ≈ β_ref rtol = 1e-4
+
+        rng32 = MersenneTwister(7)
+        obs = [Float32[y[i], X[i, 1] - 2 * X[i, 2] + randn(rng32)] for i in 1:n]
+        Y = reduce(hcat, obs)'
+        mv = MvGaussianGLM(zeros(Float32, 2, 2), Matrix(1.0f0I, 2, 2), RidgePrior(λ))
+        for _ in 1:100
+            fit!(mv, obs, ones(Float32, n); control_seq=X)
+        end
+        @test eltype(mv.B) === Float32
+        @test eltype(mv.Σ) === Float32
+        @test norm(X' * X * mv.B + λ * mv.B * mv.Σ - X' * Y) < 1.0f-4 * norm(X' * Y)
+    end
+end
