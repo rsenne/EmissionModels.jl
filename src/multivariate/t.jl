@@ -24,6 +24,7 @@ end
 #= Replace the scale of an `MvT` or `MvGaussianGLM` and refresh its cached
    Cholesky/logdet. Internal: writing to `d.Σ` directly leaves the cache stale. =#
 function _set_scale!(d, Σ::AbstractMatrix)
+    size(Σ) == size(d.Σ) || throw(DimensionMismatch("Σ size $(size(Σ)) ≠ $(size(d.Σ))"))
     Σ_chol, logdetΣ = _scale_cache(convert(Matrix{eltype(d.Σ)}, Σ))
     copyto!(d.Σ, Σ)
     d.Σ_chol = Σ_chol

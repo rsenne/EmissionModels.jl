@@ -206,6 +206,7 @@ end
         @test logdensityof(g, [0.3, -0.2]; control_seq=[1.0, 0.5]) ≈
             logpdf(MvNormal(zeros(2), 4.0I(2)), [0.3, -0.2])
         @test_throws ArgumentError EmissionModels._set_scale!(g, [1.0 0.9; 0.0 1.0])
+        @test_throws DimensionMismatch EmissionModels._set_scale!(g, [3.0;;])
     end
 
     @testset "DensityInterface" begin

@@ -62,6 +62,7 @@ import StatsAPI: fit!
         @test logdensityof(d, [0.3, -0.2]) ≈ logdensityof(ref, [0.3, -0.2])
         @test_throws ArgumentError EmissionModels._set_scale!(d, [1.0 0.9; 0.0 1.0])
         @test d.Σ == Σ4  # rejected update leaves the distribution untouched
+        @test_throws DimensionMismatch EmissionModels._set_scale!(d, [3.0;;])
     end
 
     @testset "DensityInterface" begin
