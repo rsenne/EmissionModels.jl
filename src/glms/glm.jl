@@ -68,9 +68,11 @@ See [`neglogprior`](@ref).
 
 !!! note "Closed-form Gaussian GLM"
     The `GaussianGLM`/`MvGaussianGLM` fits add the prior curvature directly to the
-    normal-equations matrix `XᵀWX` and pass a placeholder `β`. A prior usable on
-    that closed-form path must therefore have a `β`-independent Hessian sized by
-    `H` alone (as `RidgePrior` does). Priors whose Hessian depends on `β` still
+    normal equations at the current noise variance and pass a placeholder `β`. A
+    prior usable on that closed-form path must therefore have a constant
+    Hessian sized by `H` alone and zero gradient at `β = 0` (as `RidgePrior`
+    does), since that path never calls `neglogprior_grad!`; `MvGaussianGLM`
+    further requires the Hessian to be isotropic (`λI`). Priors whose Hessian depends on `β` still
     work with the Newton-based GLMs, which pass the live coefficients.
 """
 function neglogprior_hess! end
@@ -122,8 +124,8 @@ function neglogprior_grad!(p::RidgePrior, g, β)
 end
 
 #= Size the λI curvature by the Hessian itself, not `β`, so the closed-form
-   Gaussian GLM path can add ridge to XᵀWX without depending on the value or
-   length of the `β` argument it passes. =#
+   Gaussian GLM path can add ridge to its σ²-scaled normal equations without
+   depending on the value or length of the `β` argument it passes. =#
 function neglogprior_hess!(p::RidgePrior, H, β)
     λ = float(eltype(H))(p.λ)
     for i in axes(H, 1)
@@ -136,9 +138,11 @@ end
 
 Linear regression emission with Gaussian noise.
 
-E[Y|x] = xᵀβ, Var[Y|x] = σ². `fit!` uses weighted least squares; a
-`RidgePrior(λ)` augments the normal equations with `λI`, which is the
-exact MAP solution for a Gaussian prior β ~ N(0, (1/λ)I).
+E[Y|x] = xᵀβ, Var[Y|x] = σ². `fit!` uses weighted least squares. A
+`RidgePrior(λ)` is the prior β ~ N(0, (1/λ)I), as for every GLM: `fit!` solves
+`(XᵀWX + σ²λI) β = XᵀWy` at the current `σ2`, then updates `σ2` from the new
+residuals. This is a conditional-maximisation (ECM) step on the joint
+posterior, so repeated calls converge to the joint MAP of `(β, σ²)`.
 
 # Fields
 - `β`: coefficient vector (length p)
@@ -192,6 +196,17 @@ function Random.rand(
     return rand(rng, Normal(dot(reg.β, control_seq), sqrt(reg.σ2)))
 end
 
+#= Prior enters at the current σ²: (XᵀWX/σ² + H_prior) β = XᵀWy/σ² is the
+   Newton system of the Gaussian negative log-likelihood plus prior, the same
+   objective the Bernoulli/Poisson fits minimise. =#
+_add_gaussian_prior!(::NoPrior, XWX, XWy, β, σ2) = nothing
+@inline function _add_gaussian_prior!(prior::AbstractPrior, XWX, XWy, β, σ2)
+    XWX ./= σ2
+    XWy ./= σ2
+    neglogprior_hess!(prior, XWX, β)
+    return nothing
+end
+
 function StatsAPI.fit!(
     reg::GaussianGLM{T},
     obs_seq::AbstractVector{<:Real},
@@ -233,8 +248,7 @@ function StatsAPI.fit!(
     # leave the emission unchanged rather than erroring, matching DDM `fit!`.
     wsum > 0 || return reg
 
-    # RidgePrior(λ) accumulates λI into XᵀWX, giving (XᵀWX + λI)β = XᵀWy.
-    neglogprior_hess!(reg.prior, XWX, reg.β)
+    _add_gaussian_prior!(reg.prior, XWX, XWy, reg.β, reg.σ2)
 
     F = cholesky!(Symmetric(XWX, :L); check=false)
     issuccess(F) || throw(
@@ -652,9 +666,11 @@ For input x ∈ ℝᵖ the conditional distribution of y ∈ ℝᵏ is
 `y | x ~ MvNormal(Bᵀ x, Σ)`, where `B` is `p × k` and `Σ` is `k × k`.
 
 `fit!` is the closed-form weighted multivariate least squares update:
-`B = (XᵀWX + λI) \\ XᵀWY` and `Σ = (Y − XB)ᵀ W (Y − XB) / Σwᵢ`. A
-`RidgePrior(λ)` adds `λI` to `XᵀWX`, equivalent to a per-column Gaussian
-prior on `B` (Frobenius-norm penalty).
+`B = (XᵀWX) \\ XᵀWY` and `Σ = (Y − XB)ᵀ W (Y − XB) / Σwᵢ`. A `RidgePrior(λ)`
+puts β ~ N(0, (1/λ)I) on each column of `B` (penalty `λ/2 ‖B‖_F²`, as for every
+GLM); `B` then solves the Sylvester equation `XᵀWX B + λ B Σ = XᵀWY` at the
+current `Σ` before `Σ` is updated, a conditional-maximisation (ECM) step on
+the joint posterior. Only isotropic (`λI`) prior Hessians are supported.
 
 # Fields
 - `B`: coefficient matrix of size `p × k`
@@ -805,12 +821,70 @@ function Random.rand!(
     return out
 end
 
+function _xwx_not_pd_error()
+    return ArgumentError(
+        "XᵀWX is not positive definite: `control_seq` is rank-deficient " *
+        "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
+        "drop collinear columns from `control_seq`.",
+    )
+end
+
+#= XᵀWX is PD whenever the (weighted) design matrix has full column rank.
+   Failure here means rank-deficient `control_seq`, so surface that as a
+   clear error rather than silently shifting eigenvalues. =#
+function _solve_mvgaussian_B!(::NoPrior, B, XWX, XWY, Σ)
+    F = cholesky!(Symmetric(XWX, :L); check=false)
+    issuccess(F) || throw(_xwx_not_pd_error())
+    copyto!(B, XWY)
+    ldiv!(F, B)
+    return B
+end
+
+#= Stationarity XᵀWX B + λ B Σ = XᵀWY is a Sylvester equation. With the current
+   Σ = Q D Qᵀ it decouples into one ridge solve per rotated column,
+   (XᵀWX + λ dⱼ I) b̃ⱼ = (XᵀWY Q)ⱼ, and B = B̃ Qᵀ. =#
+function _solve_mvgaussian_B!(prior::AbstractPrior, B, XWX, XWY, Σ)
+    p, k = size(B)
+    λ = _isotropic_prior_curvature(prior, XWX, view(B, :, 1))
+    E = eigen(Symmetric(Σ))
+    Q = E.vectors
+    R = XWY * Q
+    A = similar(XWX)
+    for j in 1:k
+        copyto!(A, XWX)
+        λd = λ * E.values[j]
+        for a in 1:p
+            A[a, a] += λd
+        end
+        F = cholesky!(Symmetric(A, :L); check=false)
+        issuccess(F) || throw(_xwx_not_pd_error())
+        ldiv!(F, view(R, :, j))
+    end
+    mul!(B, R, transpose(Q))
+    return B
+end
+
+_isotropic_prior_curvature(prior::RidgePrior, H, β) = eltype(H)(prior.λ)
+function _isotropic_prior_curvature(prior::AbstractPrior, H, β)
+    Hp = zeros(eltype(H), size(H))
+    neglogprior_hess!(prior, Hp, β)
+    λ = Hp[1, 1]
+    Hp == λ * I || throw(
+        ArgumentError(
+            "MvGaussianGLM supports only priors with an isotropic Hessian (λI); " *
+            "got $(typeof(prior)); use `RidgePrior`, or fit each output with a " *
+            "`GaussianGLM`.",
+        ),
+    )
+    return λ
+end
+
 """
     fit!(glm::MvGaussianGLM, obs_seq, weight_seq; control_seq)
 
 Closed-form weighted multivariate WLS update. Each observation `obs_seq[i]`
-must be a length-`k` vector. `RidgePrior(λ)` augments the normal equations
-with `λI`.
+must be a length-`k` vector. With `RidgePrior(λ)`, `B` solves
+`XᵀWX B + λ B Σ = XᵀWY` at the current `Σ`.
 """
 function StatsAPI.fit!(
     glm::MvGaussianGLM{T},
@@ -858,25 +932,7 @@ function StatsAPI.fit!(
     # leave the emission unchanged rather than erroring, matching DDM `fit!`.
     wsum > 0 || return glm
 
-    #= Per-column ridge: λI added to XᵀWX gives B = (XᵀWX + λI) \ XᵀWY,
-       the joint MAP for independent N(0, (1/λ)I) priors on each column of B.
-       The curvature is sized by XWX itself (see the `neglogprior_hess!`),
-       so the β argument is an unread placeholder here. =#
-    neglogprior_hess!(glm.prior, XWX, view(glm.B, :, 1))
-
-    #= XᵀWX is PD whenever the (weighted) design matrix has full column rank.
-       Failure here means rank-deficient `control_seq`, so surface that as a
-       clear error rather than silently shifting eigenvalues. =#
-    F = cholesky!(Symmetric(XWX, :L); check=false)
-    issuccess(F) || throw(
-        ArgumentError(
-            "XᵀWX is not positive definite: `control_seq` is rank-deficient " *
-            "or weights are degenerate. Add a RidgePrior(λ) to regularize, or " *
-            "drop collinear columns from `control_seq`.",
-        ),
-    )
-    copyto!(glm.B, XWY)
-    ldiv!(F, glm.B)
+    _solve_mvgaussian_B!(glm.prior, glm.B, XWX, XWY, glm.Σ)
 
     #= Σ M-step: Σ = Σᵢ wᵢ (yᵢ - Bᵀxᵢ)(yᵢ - Bᵀxᵢ)ᵀ / Σwᵢ. Computes residuals
        on the fly into a length-k buffer, then accumulates outer products into

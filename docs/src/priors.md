@@ -5,7 +5,14 @@
 ### `RidgePrior(λ)`
 
 L2 (ridge) penalization ``\frac{λ}{2} \|\beta\|_2^2``, i.e. a Gaussian prior
-``β \sim \mathcal{N}(0, λ^{-1} I)``.
+``β \sim \mathcal{N}(0, λ^{-1} I)``, added to the weighted negative
+log-likelihood. This holds for every GLM, including `GaussianGLM` and
+`MvGaussianGLM`, whose closed-form `fit!` applies the prior at the current noise
+variance ``σ^2`` (or ``Σ``) and then updates the variance (an ECM step).
+
+With any prior, Baum-Welch becomes MAP-EM: it is monotone in the penalised
+objective, not in the HMM log-likelihood that HiddenMarkovModels.jl checks, so
+pass `loglikelihood_increasing=false` to `baum_welch`.
 
 ```julia
 using EmissionModels: RidgePrior
