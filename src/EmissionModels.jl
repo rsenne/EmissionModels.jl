@@ -15,7 +15,7 @@ using NearestNeighbors: KDTree, knn
 using Optim: Optim, optimize, OnceDifferentiable, TwiceDifferentiable, Newton, LBFGS
 using Optim.NLSolversBase: only_fgh!, only_fg!
 using Random
-using SpecialFunctions: loggamma, digamma, trigamma
+using SpecialFunctions: loggamma, logbeta, digamma, trigamma
 using Statistics: mean, var, cov
 using StatsAPI
 using StatsAPI: fit!

@@ -8,6 +8,7 @@ using SpecialFunctions: loggamma
 using Statistics: mean, cov, var
 using LinearAlgebra
 using HiddenMarkovModels
+using Distributions: Distributions
 
 import StatsAPI: fit!
 
@@ -506,6 +507,35 @@ end
 
     distd = MvTDiag(Float32[0, 0], Float32[1, 1], 5.0f0)
     @test logdensityof(distd, Float32[0.1, 0.2]) isa Float32
+end
+
+@testset "Float32 log-density accurate at large ν" begin
+    # The loggamma difference in the normaliser cancels catastrophically at large ν.
+    x64 = [0.3, -0.7]
+    x32 = Float32.(x64)
+    for ν in (1e3, 1e5, 1e6)
+        d64 = MvT(zeros(2), [1.0 0.0; 0.0 1.0], ν)
+        d32 = MvT(zeros(Float32, 2), Float32[1 0; 0 1], Float32(ν))
+        @test abs(logdensityof(d32, x32) - logdensityof(d64, x64)) < 1e-3
+
+        dd64 = MvTDiag(zeros(2), ones(2), ν)
+        dd32 = MvTDiag(zeros(Float32, 2), ones(Float32, 2), Float32(ν))
+        @test abs(logdensityof(dd32, x32) - logdensityof(dd64, x64)) < 1e-3
+    end
+end
+
+@testset "log-density matches Distributions.MvTDist" begin
+    μ = [1.0, -0.5, 2.0]
+    Σ = [2.0 0.5 0.1; 0.5 1.0 0.2; 0.1 0.2 1.5]
+    σ² = [2.0, 1.0, 1.5]
+    x = [0.3, 0.4, 1.1]
+    for ν in (2.0, 5.0, 50.0, 1e3)
+        ref = Distributions.logpdf(Distributions.MvTDist(ν, μ, Σ), x)
+        @test isapprox(logdensityof(MvT(μ, Σ, ν), x), ref; rtol=1e-12)
+
+        refd = Distributions.logpdf(Distributions.MvTDist(ν, μ, Matrix(Diagonal(σ²))), x)
+        @test isapprox(logdensityof(MvTDiag(μ, σ², ν), x), refd; rtol=1e-12)
+    end
 end
 
 @testset "ν M-step stays finite on near-Gaussian data" begin
