@@ -268,6 +268,30 @@ end
         @test glm.B == B0
     end
 
+    @testset "fit! rejects negative or non-integer counts" begin
+        glm = MultinomialGLM(zeros(2, 2), 5)
+        X = ones(4, 2)
+        neg = [[1, 1, 3], [1, 1, 3], [2, -1, 4], [1, 1, 3]]
+        @test_throws ArgumentError fit!(glm, neg, ones(4); control_seq=X)
+        err = try
+            fit!(glm, neg, ones(4); control_seq=X)
+        catch e
+            e
+        end
+        @test occursin("obs_seq[3][2]", err.msg)
+        frac = [[1.0, 1.0, 3.0], [1.0, 1.5, 2.5], [1.0, 1.0, 3.0], [1.0, 1.0, 3.0]]
+        @test_throws ArgumentError fit!(glm, frac, ones(4); control_seq=X)
+
+        fit!(
+            glm,
+            [Float64.(o) for o in [[1, 1, 3], [2, 0, 3], [0, 4, 1], [1, 2, 2]]],
+            ones(4);
+            control_seq=X,
+        )
+        @test all(isfinite, glm.B)
+        @test_throws ArgumentError fit!(glm, [1, 2, 0, 3], ones(4); control_seq=X)
+    end
+
     @testset "ControlledEmissionHMM: sample, forward, baum_welch" begin
         rng = Random.MersenneTwister(777)
         p, T = 2, 800

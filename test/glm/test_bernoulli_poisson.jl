@@ -219,6 +219,28 @@ end
         )
     end
 
+    @testset "fit! rejects observations outside {0, 1}" begin
+        X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+        glm = BernoulliGLM(zeros(2))
+        @test_throws ArgumentError fit!(glm, [0.5, 1, 0, 0.5], ones(4); control_seq=X)
+        @test_throws ArgumentError fit!(glm, [0, 1, 2, 0], ones(4); control_seq=X)
+        # Invalid observations are rejected even with zero weight.
+        @test_throws ArgumentError fit!(
+            glm, [0, 1, -1, 0], [1.0, 1.0, 0.0, 1.0]; control_seq=X
+        )
+        err = try
+            fit!(glm, [0, 1, 0.5, 0], ones(4); control_seq=X)
+        catch e
+            e
+        end
+        @test occursin("obs_seq[3]", err.msg)
+
+        fit!(glm, [false, true, true, false], ones(4); control_seq=X)
+        @test all(isfinite, glm.β)
+        fit!(glm, [0.0, 1.0, 1.0, 0.0], ones(4); control_seq=X)
+        @test all(isfinite, glm.β)
+    end
+
     @testset "fit! all-zero observations" begin
         X = hcat(ones(50), randn(rng, 50))
         y = zeros(Int, 50)
@@ -325,6 +347,24 @@ end
         @test_throws DimensionMismatch fit!(
             glm, ones(Int, 5), ones(5); control_seq=ones(5, 3)
         )
+    end
+
+    @testset "fit! rejects negative or non-integer counts" begin
+        X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+        glm = PoissonGLM(zeros(2))
+        @test_throws ArgumentError fit!(glm, [-1, 2, 3, 1], ones(4); control_seq=X)
+        @test_throws ArgumentError fit!(glm, [1.0, 2.5, 3.0, 1.0], ones(4); control_seq=X)
+        err = try
+            fit!(glm, [1, 2, -3, 1], ones(4); control_seq=X)
+        catch e
+            e
+        end
+        @test occursin("obs_seq[3]", err.msg)
+
+        fit!(glm, [2.0, 3.0, 1.0, 0.0], ones(4); control_seq=X)
+        @test all(isfinite, glm.β)
+        fit!(glm, Float32[2, 3, 1, 0], ones(Float32, 4); control_seq=Float32.(X))
+        @test all(isfinite, glm.β)
     end
 
     @testset "fit! all-zero counts" begin
@@ -472,6 +512,22 @@ end
         end
     end
 
+    @testset "fit! rejects invalid observations" begin
+        glm = MvBernoulliGLM(zeros(2, 2))
+        X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+        obs = [[0, 1], [1, 0], [1, 0.5], [0, 0]]
+        @test_throws ArgumentError fit!(glm, obs, ones(4); control_seq=X)
+        err = try
+            fit!(glm, obs, ones(4); control_seq=X)
+        catch e
+            e
+        end
+        @test occursin("obs_seq[3][2]", err.msg)
+
+        fit!(glm, [[0.0, 1.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]], ones(4); control_seq=X)
+        @test all(isfinite, glm.B)
+    end
+
     @testset "fit! DimensionMismatch" begin
         glm = MvBernoulliGLM(zeros(2, 2))
         X = ones(5, 2)
@@ -596,6 +652,22 @@ end
             fit!(glm_j, y_j, w; control_seq=X)
             @test glm.B[:, j] ≈ glm_j.β rtol = 1e-6
         end
+    end
+
+    @testset "fit! rejects invalid observations" begin
+        glm = MvPoissonGLM(zeros(2, 2))
+        X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+        obs = [[0, 1], [1, 0], [1, -1], [0, 0]]
+        @test_throws ArgumentError fit!(glm, obs, ones(4); control_seq=X)
+        err = try
+            fit!(glm, obs, ones(4); control_seq=X)
+        catch e
+            e
+        end
+        @test occursin("obs_seq[3][2]", err.msg)
+
+        fit!(glm, [[2.0, 3.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]], ones(4); control_seq=X)
+        @test all(isfinite, glm.B)
     end
 
     @testset "fit! DimensionMismatch" begin
