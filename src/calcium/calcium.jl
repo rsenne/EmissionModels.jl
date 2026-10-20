@@ -421,6 +421,11 @@ function Random.rand!(
     N = nneurons(p)
     ord = ar_order(p)
     length(out) == N || throw(DimensionMismatch("out length $(length(out)) ≠ neurons $N"))
+    length(control_seq) == N * ord || throw(
+        DimensionMismatch(
+            "control_seq length $(length(control_seq)) ≠ neurons × order $(N * ord)"
+        ),
+    )
     for n in 1:N
         μ = p.b[n]
         for l in 1:ord
@@ -459,6 +464,21 @@ _seq_at(m::AbstractMatrix, t::Integer) = view(m, t, :)
 _nsteps(v::AbstractVector{<:AbstractVector}) = length(v)
 _nsteps(m::AbstractMatrix) = size(m, 1)
 
+#= Every row is checked before `fit!` touches the shared accumulators, since a
+   throw mid-loop would leave partial sums in `CalciumParams`. =#
+function _check_rows(v::AbstractVector{<:AbstractVector}, len::Integer, name, what)
+    for t in eachindex(v)
+        length(v[t]) == len ||
+            throw(DimensionMismatch("$name[$t] length $(length(v[t])) ≠ $what $len"))
+    end
+    return nothing
+end
+function _check_rows(m::AbstractMatrix, len::Integer, name, what)
+    size(m, 2) == len ||
+        throw(DimensionMismatch("$name row length $(size(m, 2)) ≠ $what $len"))
+    return nothing
+end
+
 """
     fit!(em::CalciumEmission, obs_seq, weight_seq; control_seq)
 
@@ -487,6 +507,13 @@ function StatsAPI.fit!(
     length(weight_seq) == n_t || throw(
         DimensionMismatch("weight_seq length $(length(weight_seq)) ≠ obs_seq length $n_t"),
     )
+    _nsteps(control_seq) == n_t || throw(
+        DimensionMismatch(
+            "control_seq length $(_nsteps(control_seq)) ≠ obs_seq length $n_t"
+        ),
+    )
+    _check_rows(obs_seq, N, "obs_seq", "neurons")
+    _check_rows(control_seq, N * ord, "control_seq", "neurons × order")
 
     #= Accumulates Σ w E[s] in the Poisson case and Σ w E[s²] in the Gaussian
        case, which is what each λ update needs. =#
