@@ -75,6 +75,7 @@ end
         @test p_int isa RidgePrior{Float64}
         @test p_int.λ === 1.0
         @test neglogprior(p_int, [0.1, 0.2]) ≈ 0.5 * 0.05
+        @test neglogprior(RidgePrior(0.1), [1, 2]) ≈ 0.25
 
         g = BernoulliGLM(zeros(2), RidgePrior(1))
         fit!(g, [0, 1, 1, 0], ones(4); control_seq=[1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5])

@@ -95,7 +95,7 @@ Contributes 0.5 λ ‖β‖² to the negative log-posterior. For multivariate GL
 the same prior is applied independently to each column of the coefficient
 matrix `B`, giving a Frobenius-norm penalty 0.5 λ ‖B‖_F².
 
-`λ` must be nonnegative and is stored as `float(λ)`. The penalty terms are
+`RidgePrior(λ)` stores `float(λ)`; λ must be ≥ 0. The penalty terms are
 computed in the element type of the coefficients, so a `Float64` λ does not
 widen a `Float32` objective.
 """
@@ -110,12 +110,12 @@ end
 RidgePrior(λ::Real) = RidgePrior{typeof(float(λ))}(λ)
 
 function neglogprior(p::RidgePrior, β)
-    T = eltype(β)
+    T = float(eltype(β))
     return T(p.λ) * dot(β, β) / 2
 end
 
 function neglogprior_grad!(p::RidgePrior, g, β)
-    λ = eltype(g)(p.λ)
+    λ = float(eltype(g))(p.λ)
     for i in eachindex(g, β)
         g[i] += λ * β[i]
     end
@@ -125,7 +125,7 @@ end
    Gaussian GLM path can add ridge to XᵀWX without depending on the value or
    length of the `β` argument it passes. =#
 function neglogprior_hess!(p::RidgePrior, H, β)
-    λ = eltype(H)(p.λ)
+    λ = float(eltype(H))(p.λ)
     for i in axes(H, 1)
         H[i, i] += λ
     end
