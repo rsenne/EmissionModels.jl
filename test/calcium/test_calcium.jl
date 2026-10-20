@@ -271,13 +271,15 @@ end
             MersenneTwister(1), [0.5, 0.5], [0.95 0.05; 0.05 0.95], dists, 2000
         )
 
-        d0 = init_calcium(sim.obs_seq, 2, 1; rng=MersenneTwister(1))
+        d0 = @test_logs init_calcium(sim.obs_seq, 2, 1; rng=MersenneTwister(1))
         @test all(d -> all(<(3), d.λ), d0)
-        @test all(c -> 20 / 3 < c < 60, d0[1].params.c)
+        @test all(c -> 12 < c < 35, d0[1].params.c)
+        @test d0[1].params.fit_c                     # estimated c is fitted
 
         # an explicit c is used as given
         d1 = init_calcium(sim.obs_seq, 2, 1; c=[20.0, 20.0], rng=MersenneTwister(1))
         @test d1[1].params.c == [20.0, 20.0]
+        @test !d1[1].params.fit_c
         @test all(d -> all(<(3), d.λ), d1)
     end
 
