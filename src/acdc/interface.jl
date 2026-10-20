@@ -116,10 +116,11 @@ recovery and any Monte Carlo discrepancy estimates; seed it for reproducible
 results. Extra keyword arguments are forwarded to `stochastic_drivers`. The
 second form scores an already-recovered [`StochasticDriverResult`](@ref).
 
-A component whose driver pool is empty (it was never assigned a sample, which
-happens when the model has more components than the data supports) scores
-`Inf`: there is no evidence it is well specified, and the discrepancy measures
-are undefined on empty pools.
+A component whose driver pool has fewer than two samples (it was rarely or never
+assigned a sample, which happens when the model has more components than the
+data supports) scores `Inf`: there is no evidence it is well specified, and the
+discrepancy measures are undefined on such pools. A `NaN` score is also mapped
+to `Inf`.
 """
 function component_discrepancies(
     model,
@@ -145,12 +146,14 @@ function component_discrepancies(
     discs = Vector{T}(undef, K)
     for k in 1:K
         pool = result.ε_pools[k]
-        #= Empty pool: the component was never sampled, so score it maximally
-           discrepant rather than let the measures divide by zero or throw. =#
-        discs[k] = if isempty(pool)
+        #= Fewer than two samples: the measures divide by zero, return NaN, or
+           throw, so score the component maximally discrepant. NaN would win
+           `acdc_select`'s argmin, so it is mapped to Inf as well. =#
+        discs[k] = if isempty(pool) || size(pool, 2) < 2
             T(Inf)
         else
-            T(compute_discrepancy(discrepancy, pool; rng=rng))
+            d = T(compute_discrepancy(discrepancy, pool; rng=rng))
+            isnan(d) ? T(Inf) : d
         end
     end
 
@@ -423,9 +426,12 @@ end
     acdc_loss(result::ACDCResult, ρ::Real) -> Real
 
 ACDC loss for cutoff ``\\rho``: ``R^\\rho(K) = \\sum_k \\max(0, \\hat{D}_k - \\rho)``.
+A `NaN` discrepancy contributes `Inf`, so such a result can never be selected.
 """
 function acdc_loss(result::ACDCResult{T}, ρ::Real) where {T<:Real}
-    return sum(max(zero(T), d - T(ρ)) for d in result.component_discrepancies)
+    return sum(
+        isnan(d) ? T(Inf) : max(zero(T), d - T(ρ)) for d in result.component_discrepancies
+    )
 end
 
 """
