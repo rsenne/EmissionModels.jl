@@ -67,10 +67,13 @@ const EM = EmissionModels
             @test logdensityof(du, (1, rt), 1.0) ≈ logdensityof(du, (2, rt), -1.0)
         end
 
-        # zero-density observations return -Inf instead of throwing
-        @test logdensityof(d, (1, 0.1), 1.0) == -Inf   # rt < τ
-        @test logdensityof(d, (1, 0.2), 1.0) == -Inf   # rt == τ
-        @test logdensityof(d, (3, 0.6), 1.0) == -Inf   # invalid choice
+        # rt ≤ τ hits the density floor; an invalid choice is still -Inf
+        @test logdensityof(d, (1, 0.1), 1.0) == log(1e-16)   # rt < τ
+        @test logdensityof(d, (1, 0.2), 1.0) == log(1e-16)   # rt == τ
+        @test logdensityof(d, (3, 0.6), 1.0) == -Inf          # invalid choice
+        # underflow inside the series is floored too
+        @test logdensityof(d, (1, 0.2 + 1e-4), 1.0) == log(1e-16)
+        @test EM._ddm_logpdf(1.5f0, 1.0f0, 0.4f0, 0.2f0, 1, 0.1f0) === log(1.0f-16)
     end
 
     @testset "_ddm_prob_upper closed form" begin
@@ -127,6 +130,12 @@ const EM = EmissionModels
         end
         g_bad = ForwardDiff.gradient(θ -> EM._ddm_logpdf(θ[1], θ[2], θ[3], θ[4], 3, 0.6), θ)
         @test all(iszero, g_bad)
+        # the floor at rt ≤ τ is finite under duals, with zero gradient
+        f_lo(θ) = EM._ddm_logpdf(θ[1], θ[2], θ[3], θ[4], 1, 0.15)
+        @test ForwardDiff.value(f_lo(ForwardDiff.Dual.(θ, 1.0))) == log(1e-16)
+        g_lo = ForwardDiff.gradient(f_lo, θ)
+        @test all(isfinite, g_lo)
+        @test all(iszero, g_lo)
     end
 
     @testset "type stability" begin
@@ -199,6 +208,98 @@ const EM = EmissionModels
         end
         @test isapprox(d.α, 1.2; rtol=0.15)
         @test isapprox(d.τ, 0.25; atol=0.05)
+    end
+
+    @testset "fit! from a start τ above the fastest RTs (#69)" begin
+        #= The old (0, rt_min) bound clamped such a start to just under rt_min,
+           where the fastest trial's density underflowed and LBFGS stalled. =#
+        rng = MersenneTwister(2)
+        n = 1000
+        truth = StimulusCodedDDM(; ν=1.5, α=1.2, z=0.5, τ=0.2)
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        rt_min = minimum(o -> o.rt, obs)
+        @test rt_min < 0.3
+        ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
+        for d in (
+            StimulusCodedDDM(),
+            StimulusCodedDDM(; ν=3.0, α=2.0, z=0.5, τ=1.0),
+            StimulusCodedDDM(; ν=1.0, α=1.0, z=0.5, τ=(1 - 1e-6) * rt_min),
+        )
+            d0 = deepcopy(d)
+            @test_logs fit!(d, obs, ones(n); control_seq=controls)
+            @test (d.ν, d.α, d.z, d.τ) != (d0.ν, d0.α, d0.z, d0.τ)
+            @test isapprox(d.ν, 1.5; rtol=0.15)
+            @test isapprox(d.α, 1.2; rtol=0.15)
+            @test isapprox(d.z, 0.5; atol=0.05)
+            @test isapprox(d.τ, 0.2; atol=0.05)
+            @test isfinite(ll(d))
+            @test ll(d) >= ll(truth) - 1
+        end
+
+        truth_c = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.2)
+        levels = (0.032, 0.064, 0.128, 0.256, 0.512)
+        controls_c = [rand(rng, (-1, 1)) * rand(rng, levels) for _ in 1:n]
+        obs_c = [rand(rng, truth_c, controls_c[i]) for i in 1:n]
+        @test minimum(o -> o.rt, obs_c) < 0.3
+        ll_c(m) = sum(logdensityof(m, obs_c[i], controls_c[i]) for i in 1:n)
+        c = CoherenceDDM()
+        c0 = deepcopy(c)
+        @test_logs fit!(c, obs_c, ones(n); control_seq=controls_c)
+        @test (c.k, c.γ, c.α, c.z, c.τ) != (c0.k, c0.γ, c0.α, c0.z, c0.τ)
+        @test isapprox(c.α, 1.2; rtol=0.15)
+        @test isapprox(c.τ, 0.2; atol=0.05)
+        @test isfinite(ll_c(c))
+        @test ll_c(c) >= ll_c(truth_c) - 1
+    end
+
+    @testset "fit! τ box: clamping and the lower edge" begin
+        rng = MersenneTwister(4)
+        truth = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.25)
+        n = 300
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        lo, hi = EM._DDM_τ_BOX
+
+        # a start below the box is clamped in and still recovers τ
+        d = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=0.0)
+        fit!(d, obs, ones(n); control_seq=controls)
+        @test isapprox(d.τ, 0.25; atol=0.05)
+        c = CoherenceDDM(; τ=0.0)
+        fit!(c, obs, ones(n); control_seq=controls)
+        @test isapprox(c.τ, 0.25; atol=0.05)
+
+        # a start above the box packs to just inside its upper edge
+        for m in (StimulusCodedDDM(; τ=10.0), CoherenceDDM(; τ=10.0))
+            τ_packed = EM._unpack(m, EM._pack(m)).τ
+            @test τ_packed < hi
+            @test isapprox(τ_packed, hi; rtol=1e-6)
+        end
+
+        #= The unscaled first LBFGS step used to throw θ_τ into the saturated
+           logistic tail, ending at τ = 1e-3 with a far worse likelihood. =#
+        rng = MersenneTwister(11)
+        n = 1000
+        truth = StimulusCodedDDM(1.5, 1.2, 0.5, 0.2)
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
+        d = StimulusCodedDDM(1.0, 1.0, 0.5, 0.7)
+        fit!(d, obs, ones(n); control_seq=controls)
+        @test isapprox(d.τ, 0.2; atol=0.05)
+        @test isapprox(d.α, 1.2; rtol=0.15)
+        @test ll(d) >= ll(truth) - 1
+    end
+
+    @testset "fit! warns when τ exceeds every RT" begin
+        rng = MersenneTwister(4)
+        truth = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.25)
+        n = 300
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        @test maximum(o -> o.rt, obs) < 2.0
+        d = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=2.0)
+        @test_logs (:warn, r"τ") fit!(d, obs, ones(n); control_seq=controls)
     end
 
     @testset "fit! weights and edge cases" begin
@@ -302,6 +403,31 @@ const EM = EmissionModels
         _, lls = baum_welch(hmm0, obs_seq, control_seq; seq_ends=[T], max_iterations=8)
         @test all(diff(lls) .>= -1e-6)
         @test last(lls) >= first(lls)
+    end
+
+    @testset "DDM-HMM states separate in τ (#116)" begin
+        #= Under the old (0, rt_min) bound every state's τ was pinned below the
+           fastest trial overall, so the slow state stalled near 0.48. =#
+        rng = MersenneTwister(7)
+        truth = ControlledEmissionHMM(
+            [0.5, 0.5],
+            [0.95 0.05; 0.05 0.95],
+            [StimulusCodedDDM(1.5, 1.2, 0.5, 0.3), StimulusCodedDDM(1.5, 1.2, 0.5, 0.6)],
+        )
+        ctrl = rand(rng, (1, 2), 3000)
+        _, obs = rand(rng, truth, ctrl)
+        init = ControlledEmissionHMM(
+            [0.5, 0.5],
+            [0.9 0.1; 0.1 0.9],
+            [StimulusCodedDDM(1.0, 1.0, 0.5, 0.25), StimulusCodedDDM(1.0, 1.0, 0.5, 0.5)],
+        )
+        est, lls = baum_welch(
+            init, obs, ctrl; loglikelihood_increasing=false, max_iterations=60
+        )
+        @test all(isfinite, lls)
+        τs = sort([est.dists[1].τ, est.dists[2].τ])
+        @test isapprox(τs[1], 0.3; atol=0.05)
+        @test isapprox(τs[2], 0.6; atol=0.05)
     end
 
     @testset "ACDC driver recovery" begin

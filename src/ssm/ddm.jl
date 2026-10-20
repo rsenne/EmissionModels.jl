@@ -41,6 +41,10 @@ function _ssm_hook_error(f, args, ext_loaded::Bool)
         "`rand`, and `fit!`.",
     )
 end
+# Density floor and τ box (s) of the published DDM-HMM; see the `StimulusCodedDDM` docstring.
+const _DDM_DENSITY_FLOOR = 1e-16
+const _DDM_τ_BOX = (1e-3, 5.0)
+
 _ddm_logpdf(ν, α, z, τ, choice, rt) = _require_ssm(_ddm_logpdf, (ν, α, z, τ, choice, rt))
 _ddm_rand(rng, ν, α, z, τ) = _require_ssm(_ddm_rand, (rng, ν, α, z, τ))
 # Defective CDF P(choice, RT ≤ rt), used by ACDC driver recovery.
@@ -88,6 +92,13 @@ the fact from the trial condition.
 - `z::T`: relative starting point (0 < z < 1; 0.5 is unbiased). Stimulus coding
   makes this a side bias, not an accuracy bias.
 - `τ::T`: non-decision time in seconds (τ ≥ 0)
+
+# Design note
+The density is floored at `1e-16`, so `rt ≤ τ` has finite log-density: the limit
+of a contaminant-mixture model (Ratcliff & Tuerlinckx 2002), which lets Baum-Welch
+move a state's τ past trials it does not explain. `fit!` constrains τ to
+`[1e-3, 5]` s. Both follow the published formulation in DriftDiffusionModels.jl
+(Senne et al. 2026, bioRxiv 10.64898/2026.05.25.727672).
 
 # Example
 ```julia
@@ -142,6 +153,9 @@ control passed to `logdensityof`/`rand`/`fit!` is the scalar signed coherence
 - `z::T`: relative starting point / side bias (0 < z < 1)
 - `τ::T`: non-decision time in seconds (τ ≥ 0)
 
+# Design note
+Same density floor and τ box as [`StimulusCodedDDM`](@ref).
+
 # Example
 ```julia
 using EmissionModels, SequentialSamplingModels
@@ -195,20 +209,23 @@ end
 
 #= `_pack`/`_unpack` map a model's fields to and from the unconstrained vector θ
    the optimizer sees: ν, k, γ, α through exp; z through logistic; τ through a
-   logistic scaled into (0, rt_min). =#
-function _pack(d::StimulusCodedDDM{T}, rt_min::T) where {T<:Real}
+   logistic scaled into the fixed box _DDM_τ_BOX. A τ outside the box is
+   clamped into its interior. =#
+function _pack(d::StimulusCodedDDM{T}) where {T<:Real}
     ϵ = sqrt(eps(T))
-    return T[log(d.ν), log(d.α), logit(d.z), logit(clamp(d.τ / rt_min, ϵ, 1 - ϵ))]
+    lo, hi = T.(_DDM_τ_BOX)
+    return T[log(d.ν), log(d.α), logit(d.z), logit(clamp((d.τ - lo) / (hi - lo), ϵ, 1 - ϵ))]
 end
 
-function _unpack(::StimulusCodedDDM, θ::AbstractVector{<:Real}, rt_min::Real)
+function _unpack(::StimulusCodedDDM{T}, θ::AbstractVector{<:Real}) where {T<:Real}
     # logistic saturates to exactly 0/1 for large |θ|; keep z interior
-    ϵ = eps(float(typeof(rt_min)))
+    ϵ = eps(T)
+    lo, hi = T.(_DDM_τ_BOX)
     return (
         ν=exp(θ[1]),
         α=exp(θ[2]),
         z=clamp(logistic(θ[3]), ϵ, 1 - ϵ),
-        τ=rt_min * logistic(θ[4]),
+        τ=lo + (hi - lo) * logistic(θ[4]),
     )
 end
 
@@ -222,19 +239,22 @@ function _setparams!(d::StimulusCodedDDM, pars)
     return d
 end
 
-function _pack(d::CoherenceDDM{T}, rt_min::T) where {T<:Real}
+function _pack(d::CoherenceDDM{T}) where {T<:Real}
     ϵ = sqrt(eps(T))
-    return T[log(d.k), log(d.γ), log(d.α), logit(d.z), logit(clamp(d.τ / rt_min, ϵ, 1 - ϵ))]
+    lo, hi = T.(_DDM_τ_BOX)
+    τ_θ = logit(clamp((d.τ - lo) / (hi - lo), ϵ, 1 - ϵ))
+    return T[log(d.k), log(d.γ), log(d.α), logit(d.z), τ_θ]
 end
 
-function _unpack(::CoherenceDDM, θ::AbstractVector{<:Real}, rt_min::Real)
-    ϵ = eps(float(typeof(rt_min)))
+function _unpack(::CoherenceDDM{T}, θ::AbstractVector{<:Real}) where {T<:Real}
+    ϵ = eps(T)
+    lo, hi = T.(_DDM_τ_BOX)
     return (
         k=exp(θ[1]),
         γ=exp(θ[2]),
         α=exp(θ[3]),
         z=clamp(logistic(θ[4]), ϵ, 1 - ϵ),
-        τ=rt_min * logistic(θ[5]),
+        τ=lo + (hi - lo) * logistic(θ[5]),
     )
 end
 
@@ -249,23 +269,22 @@ function _setparams!(d::CoherenceDDM, pars)
     return d
 end
 
-# Weighted negative log-likelihood in θ; a zero-density trial returns +Inf.
+#= Weighted negative log-likelihood in θ. The density floor keeps every valid
+   trial finite; a non-finite term (NaN from the series) returns +Inf. =#
 struct _DDMNLL{
     D<:AbstractDDMEmission,
     O<:AbstractVector,
     W<:AbstractVector{<:Real},
     C<:AbstractVector{<:Real},
-    T<:Real,
 }
     d::D
     obs_seq::O
     weight_seq::W
     control_seq::C
-    rt_min::T
 end
 
 function (o::_DDMNLL)(θ::AbstractVector{T}) where {T<:Real}
-    pars = _unpack(o.d, θ, o.rt_min)
+    pars = _unpack(o.d, θ)
     nll = zero(T)
     for i in eachindex(o.obs_seq, o.weight_seq, o.control_seq)
         w = o.weight_seq[i]
@@ -304,9 +323,11 @@ from the current parameters (so repeated EM calls refine, not restart).
 
 The optimizer is Optim's LBFGS over unconstrained transformed parameters,
 with the gradient supplied by ForwardDiff through the first-passage density.
-The non-decision time is constrained to `(0, rt_min)` where `rt_min` is the
-smallest reaction time with positive weight. If no positive weight is present
-the parameters are left unchanged.
+The non-decision time is constrained to the fixed box `[1e-3, 5]` seconds; a
+starting τ outside it is clamped in. Trials with `rt ≤ τ` contribute the
+floored density `1e-16` (see the design note on [`StimulusCodedDDM`](@ref)).
+Start τ below most RTs; if τ exceeds every RT the objective is flat and the fit
+stalls (a warning is emitted). If no positive weight is present the parameters are left unchanged.
 
 # Arguments
 - `d`: [`StimulusCodedDDM`](@ref) or [`CoherenceDDM`](@ref), updated in place
@@ -336,9 +357,9 @@ function StatsAPI.fit!(
 
     T = typeof(d.α)
 
-    # Only positive-weight trials constrain the fit and bound τ from above.
+    # Only positive-weight trials constrain the fit.
     total_weight = zero(T)
-    rt_min = T(Inf)
+    rt_max = zero(T)
     for i in 1:n
         w = weight_seq[i]
         w > 0 || continue
@@ -353,18 +374,26 @@ function StatsAPI.fit!(
             ),
         )
         rt > 0 || throw(ArgumentError("reaction times must be positive, got $rt"))
-        rt_min = min(rt_min, T(rt))
+        rt_max = max(rt_max, T(rt))
     end
     total_weight > 0 || return d
+    # Every trial is then on the density floor: zero gradient, so LBFGS cannot move.
+    if d.τ >= rt_max
+        @warn "DDM fit!: τ = $(d.τ) is not below any weighted RT; the fit stalls" maxlog = 1
+    end
 
-    θ = _pack(d, rt_min)
-    nll = _DDMNLL(d, obs_seq, weight_seq, control_seq, rt_min)
+    θ = _pack(d)
+    nll = _DDMNLL(d, obs_seq, weight_seq, control_seq)
     fg = _DDMFG(nll, ForwardDiff.GradientConfig(nll, θ))
     od = OnceDifferentiable(only_fg!(fg), θ)
-    result = optimize(od, θ, LBFGS(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
-    # Keep the current parameters if no finite-likelihood optimum was found.
+    #= Cap the first step: the raw gradient from trials just above τ is huge and
+       would throw θ_τ into the saturated logistic tail at the lower box edge. =#
+    lbfgs = LBFGS(; alphaguess=Optim.LineSearches.InitialStatic(; scaled=true))
+    result = optimize(od, θ, lbfgs, Optim.Options(; iterations=max_iter, g_abstol=gtol))
     if isfinite(Optim.minimum(result))
-        _setparams!(d, _unpack(d, Optim.minimizer(result), rt_min))
+        _setparams!(d, _unpack(d, Optim.minimizer(result)))
+    else
+        @warn "DDM fit!: no finite-likelihood optimum; parameters unchanged" maxlog = 1
     end
     return d
 end

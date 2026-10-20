@@ -43,7 +43,13 @@ d = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.25)
 
 ## Fitting DDM emissions
 
-`fit!` maximizes the weighted log-likelihood ``\sum_i w_i \log p(\mathrm{choice}_i, \mathrm{rt}_i \mid \mathrm{control}_i)`` in place. The density is the Navarro & Fuss (2009) series for the Wiener first passage time; positive parameters are optimized in ``\log`` space and bounded ones (``z``, ``τ``) through a logistic map, so LBFGS runs unconstrained with gradients from ForwardDiff. ``τ`` is capped at the smallest reaction time carrying positive weight. Each call warm-starts from the current parameters, so it refines an EM iterate rather than restarting.
+`fit!` maximizes the weighted log-likelihood ``\sum_i w_i \log p(\mathrm{choice}_i, \mathrm{rt}_i \mid \mathrm{control}_i)`` in place. The density is the Navarro & Fuss (2009) series for the Wiener first passage time; positive parameters are optimized in ``\log`` space and bounded ones (``z``, ``τ``) through a logistic map, so LBFGS runs unconstrained with gradients from ForwardDiff. ``τ`` is constrained to the fixed box ``[10^{-3}, 5]`` s. Each call warm-starts from the current parameters, so it refines an EM iterate rather than restarting.
+
+!!! note "Design note"
+    The density is floored at ``10^{-16}``, so a trial with ``\mathrm{rt} \le τ`` has finite log-density.
+    This is the limit of a contaminant-mixture model (Ratcliff & Tuerlinckx, 2002) and lets Baum-Welch move a state's ``τ`` past trials it does not explain.
+    ``τ`` is constrained to ``[10^{-3}, 5]`` s.
+    Both follow the published formulation in [DriftDiffusionModels.jl](https://github.com/depasquale-lab/DriftDiffusionModels.jl) (Senne et al., 2026).
 
 ```julia
 # obs_seq: vector of (choice, rt) pairs; stimulus_codes: per-trial controls;
@@ -87,4 +93,5 @@ StatsAPI.fit!(::EmissionModels.AbstractDDMEmission, ::AbstractVector, ::Abstract
 ## References
 
 - Senne, R. A., Xia, H., Duebel, H. F., Do, Q., Kane, G., Fourie, J., Ramirez, S., Scott, B., & DePasquale, B. (2026). Diurnal rhythms of choice: a novel state-dependent drift diffusion model uncovers time-dependent changes in rat decision making. *bioRxiv* [2026.05.25.727672](https://doi.org/10.64898/2026.05.25.727672).
+- Ratcliff, R., & Tuerlinckx, F. (2002). Estimating parameters of the diffusion model: Approaches to dealing with contaminant reaction times and parameter variability. *Psychonomic Bulletin & Review*, 9(3), 438-481.
 - Navarro, D. J., & Fuss, I. G. (2009). Fast and accurate calculations for first-passage times in Wiener diffusion models. *Journal of Mathematical Psychology*, 53(4), 222-230.
