@@ -43,8 +43,17 @@ function EmissionModels._ddm_cdf(ν::Real, α::Real, z::Real, τ::Real, choice::
     (choice == 1 || choice == 2) || return zero(T)
     rt > τ || return zero(T)
     # Same homogeneous-type promotion and overflow guard as `_ddm_logpdf`.
+    cdf_at(v) = SequentialSamplingModels.cdf(DDM(v, T(α), T(z), T(τ)), Int(choice), T(rt))
     F = try
-        SequentialSamplingModels.cdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
+        #= SSM's zero-drift branch (|ν| < sqrt(eps(T))) returns the cdf with the
+           wrong sign; interpolate between ±thr instead, which is O(thr²) exact. =#
+        thr = max(T(1e-6), 2 * sqrt(eps(T)))
+        if abs(ν) < thr
+            Fm, Fp = cdf_at(-thr), cdf_at(thr)
+            Fm + (T(ν) + thr) / (2 * thr) * (Fp - Fm)
+        else
+            cdf_at(T(ν))
+        end
     catch e
         #= Same narrowing as `_ddm_logpdf`: numeric edge cases carry zero mass,
         but MethodError/InterruptException propagate. =#

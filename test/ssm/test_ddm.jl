@@ -1,5 +1,6 @@
 using EmissionModels
-using EmissionModels: stochastic_drivers, component_discrepancies, KSDiscrepancy
+using EmissionModels:
+    stochastic_drivers, component_discrepancies, compute_discrepancy, KSDiscrepancy
 using SequentialSamplingModels
 using SequentialSamplingModels: DDM
 using HiddenMarkovModels: ControlledEmission, ControlledEmissionHMM, baum_welch, forward
@@ -325,6 +326,39 @@ const EM = EmissionModels
                 @test isapprox(var(view(E, row, :)), 1 / 12; atol=0.01)
             end
         end
+    end
+
+    @testset "zero-drift CDF (#76)" begin
+        F0 = EM._ddm_cdf(0.0, 1.2, 0.4, 0.3, 1, 0.35)
+        F1 = EM._ddm_cdf(1e-6, 1.2, 0.4, 0.3, 1, 0.35)
+        @test F0 > 0
+        @test isapprox(F0, F1; rtol=1e-6)
+        F32 = EM._ddm_cdf(0.0f0, 1.2f0, 0.4f0, 0.3f0, 1, 0.35f0)
+        @test F32 isa Float32
+        @test isapprox(F32, F0; rtol=1e-3)
+
+        rts = range(0.31, 5.0; length=200)
+        for choice in (1, 2)
+            Fs = [EM._ddm_cdf(0.0, 1.2, 0.4, 0.3, choice, rt) for rt in rts]
+            @test all(diff(Fs) .>= 0)
+            pu = EM._ddm_prob_upper(0.0, 1.2, 0.4)
+            @test isapprox(
+                EM._ddm_cdf(0.0, 1.2, 0.4, 0.3, choice, 50.0),
+                choice == 1 ? pu : 1 - pu;
+                atol=1e-8,
+            )
+        end
+
+        # stimulus-0 trials must still give uniform RT drivers
+        rng = MersenneTwister(76)
+        d = StimulusCodedDDM(; ν=1.8, α=1.2, z=0.4, τ=0.3)
+        N = 4000
+        E = Matrix{Float64}(undef, 2, N)
+        for i in 1:N
+            obs = rand(rng, d, 0.0)
+            E[:, i] = EM._emission_to_driver(rng, d, obs, 0.0)
+        end
+        @test compute_discrepancy(KSDiscrepancy(), E[2:2, :]) < 0.03
     end
 
     @testset "ACDC on a DDM-HMM (end-to-end)" begin
