@@ -326,7 +326,8 @@ with the gradient supplied by ForwardDiff through the first-passage density.
 The non-decision time is constrained to the fixed box `[1e-3, 5]` seconds; a
 starting τ outside it is clamped in. Trials with `rt ≤ τ` contribute the
 floored density `1e-16` (see the design note on [`StimulusCodedDDM`](@ref)).
-If no positive weight is present the parameters are left unchanged.
+Start τ below most RTs; if τ exceeds every RT the objective is flat and the fit
+stalls (a warning is emitted). If no positive weight is present the parameters are left unchanged.
 
 # Arguments
 - `d`: [`StimulusCodedDDM`](@ref) or [`CoherenceDDM`](@ref), updated in place
@@ -358,6 +359,7 @@ function StatsAPI.fit!(
 
     # Only positive-weight trials constrain the fit.
     total_weight = zero(T)
+    rt_max = zero(T)
     for i in 1:n
         w = weight_seq[i]
         w > 0 || continue
@@ -372,14 +374,22 @@ function StatsAPI.fit!(
             ),
         )
         rt > 0 || throw(ArgumentError("reaction times must be positive, got $rt"))
+        rt_max = max(rt_max, T(rt))
     end
     total_weight > 0 || return d
+    # Every trial is then on the density floor: zero gradient, so LBFGS cannot move.
+    if d.τ >= rt_max
+        @warn "DDM fit!: τ = $(d.τ) is not below any weighted RT; the fit stalls" maxlog = 1
+    end
 
     θ = _pack(d)
     nll = _DDMNLL(d, obs_seq, weight_seq, control_seq)
     fg = _DDMFG(nll, ForwardDiff.GradientConfig(nll, θ))
     od = OnceDifferentiable(only_fg!(fg), θ)
-    result = optimize(od, θ, LBFGS(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
+    #= Cap the first step: the raw gradient from trials just above τ is huge and
+       would throw θ_τ into the saturated logistic tail at the lower box edge. =#
+    lbfgs = LBFGS(; alphaguess=Optim.LineSearches.InitialStatic(; scaled=true))
+    result = optimize(od, θ, lbfgs, Optim.Options(; iterations=max_iter, g_abstol=gtol))
     if isfinite(Optim.minimum(result))
         _setparams!(d, _unpack(d, Optim.minimizer(result)))
     else

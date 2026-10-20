@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a finite log-density, and `fit!` constrains τ to the fixed box `[1e-3, 5]` s
   instead of `(0, rt_min)`. DDM-HMM states can now separate in τ under
   Baum-Welch, and `fit!` no longer stalls when the starting τ exceeds the
-  fastest RT (#116, #69).
-
+  fastest RT (#116, #69). `logdensityof` for `rt ≤ τ` (and on series
+  underflow) now returns `log(1e-16)` instead of `-Inf`; an invalid choice is
+  still `-Inf`.
 
 ### Fixed
 

@@ -22,18 +22,18 @@ function EmissionModels._ddm_logpdf(
        `float` only maps Integer inputs to a type where ±Inf is representable;
        every other Real, ForwardDiff duals (this is the path fit!
        differentiates), Float32, BigFloat, etc.pass through unchanged.
-       The series can also overflow at extreme parameters; treat that as
-       zero density. =#
+       The series can also overflow at extreme parameters; that hits the
+       density floor. =#
     p = try
         SequentialSamplingModels.pdf(DDM(T(ν), T(α), T(z), T(τ)), Int(choice), T(rt))
     catch e
         #= Only numeric edge cases (the series can misbehave at extreme
-           parameters) count as zero density. Re-raise programming errors such
+           parameters) hit the density floor. Re-raise programming errors such
            as MethodError so a real precision/dispatch bug is not masked. =#
         (e isa InterruptException || e isa MethodError) && rethrow()
         return lfloor
     end
-    # max is Dual-safe; a non-finite series value counts as zero density.
+    # max is Dual-safe; a non-finite series value hits the density floor.
     isfinite(p) || return lfloor
     return T(log(max(p, dfloor)))
 end

@@ -253,22 +253,53 @@ const EM = EmissionModels
         @test ll_c(c) >= ll_c(truth_c) - 1
     end
 
-    @testset "fit! keeps τ in the fixed box" begin
+    @testset "fit! τ box: clamping and the lower edge" begin
         rng = MersenneTwister(4)
         truth = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.25)
         n = 300
         controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
         obs = [rand(rng, truth, controls[i]) for i in 1:n]
         lo, hi = EM._DDM_τ_BOX
-        for τ0 in (0.0, 10.0)
-            d = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=τ0)
-            fit!(d, obs, ones(n); control_seq=controls)
-            @test lo < d.τ < hi
-            @test all(isfinite, (d.ν, d.α, d.z, d.τ))
-            c = CoherenceDDM(; τ=τ0)
-            fit!(c, obs, ones(n); control_seq=controls)
-            @test lo < c.τ < hi
+
+        # a start below the box is clamped in and still recovers τ
+        d = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=0.0)
+        fit!(d, obs, ones(n); control_seq=controls)
+        @test isapprox(d.τ, 0.25; atol=0.05)
+        c = CoherenceDDM(; τ=0.0)
+        fit!(c, obs, ones(n); control_seq=controls)
+        @test isapprox(c.τ, 0.25; atol=0.05)
+
+        # a start above the box packs to just inside its upper edge
+        for m in (StimulusCodedDDM(; τ=10.0), CoherenceDDM(; τ=10.0))
+            τ_packed = EM._unpack(m, EM._pack(m)).τ
+            @test τ_packed < hi
+            @test isapprox(τ_packed, hi; rtol=1e-6)
         end
+
+        #= The unscaled first LBFGS step used to throw θ_τ into the saturated
+           logistic tail, ending at τ = 1e-3 with a far worse likelihood. =#
+        rng = MersenneTwister(11)
+        n = 1000
+        truth = StimulusCodedDDM(1.5, 1.2, 0.5, 0.2)
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
+        d = StimulusCodedDDM(1.0, 1.0, 0.5, 0.7)
+        fit!(d, obs, ones(n); control_seq=controls)
+        @test isapprox(d.τ, 0.2; atol=0.05)
+        @test isapprox(d.α, 1.2; rtol=0.15)
+        @test ll(d) >= ll(truth) - 1
+    end
+
+    @testset "fit! warns when τ exceeds every RT" begin
+        rng = MersenneTwister(4)
+        truth = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.25)
+        n = 300
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        @test maximum(o -> o.rt, obs) < 2.0
+        d = StimulusCodedDDM(; ν=1.0, α=0.8, z=0.5, τ=2.0)
+        @test_logs (:warn, r"τ") fit!(d, obs, ones(n); control_seq=controls)
     end
 
     @testset "fit! weights and edge cases" begin
