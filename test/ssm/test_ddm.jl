@@ -201,6 +201,49 @@ const EM = EmissionModels
         @test isapprox(d.τ, 0.25; atol=0.05)
     end
 
+    @testset "fit! starts τ inside (0, rt_min) (issue #69)" begin
+        #= A starting τ ≥ rt_min used to be clamped to just under rt_min, where
+           the fastest trial's density underflows and LBFGS stalls at iteration 0. =#
+        rng = MersenneTwister(2)
+        n = 1000
+        truth = StimulusCodedDDM(; ν=1.5, α=1.2, z=0.5, τ=0.2)
+        controls = [rand(rng, (-1.0, 1.0)) for _ in 1:n]
+        obs = [rand(rng, truth, controls[i]) for i in 1:n]
+        rt_min = minimum(o -> o.rt, obs)
+        @test rt_min < 0.3
+        ll(m) = sum(logdensityof(m, obs[i], controls[i]) for i in 1:n)
+        for d in (StimulusCodedDDM(), StimulusCodedDDM(; ν=1.0, α=1.0, z=0.5, τ=1.0))
+            d0 = deepcopy(d)
+            @test_logs fit!(d, obs, ones(n); control_seq=controls)
+            @test (d.ν, d.α, d.z, d.τ) != (d0.ν, d0.α, d0.z, d0.τ)
+            @test d.τ < rt_min
+            @test isapprox(d.ν, 1.5; rtol=0.15)
+            @test isapprox(d.α, 1.2; rtol=0.15)
+            @test isapprox(d.z, 0.5; atol=0.05)
+            @test isapprox(d.τ, 0.2; atol=0.05)
+            @test isfinite(ll(d))
+            @test ll(d) >= ll(truth) - 1
+        end
+
+        truth_c = CoherenceDDM(; k=8.0, γ=0.7, α=1.2, z=0.5, τ=0.2)
+        levels = (0.032, 0.064, 0.128, 0.256, 0.512)
+        controls_c = [rand(rng, (-1, 1)) * rand(rng, levels) for _ in 1:n]
+        obs_c = [rand(rng, truth_c, controls_c[i]) for i in 1:n]
+        rt_min_c = minimum(o -> o.rt, obs_c)
+        @test rt_min_c < 0.3
+        ll_c(m) = sum(logdensityof(m, obs_c[i], controls_c[i]) for i in 1:n)
+        for c in (CoherenceDDM(), CoherenceDDM(; k=4.0, γ=1.0, α=1.0, z=0.5, τ=1.0))
+            c0 = deepcopy(c)
+            @test_logs fit!(c, obs_c, ones(n); control_seq=controls_c)
+            @test (c.k, c.γ, c.α, c.z, c.τ) != (c0.k, c0.γ, c0.α, c0.z, c0.τ)
+            @test c.τ < rt_min_c
+            @test isapprox(c.α, 1.2; rtol=0.15)
+            @test isapprox(c.τ, 0.2; atol=0.05)
+            @test isfinite(ll_c(c))
+            @test ll_c(c) >= ll_c(truth_c) - 1
+        end
+    end
+
     @testset "fit! weights and edge cases" begin
         rng = MersenneTwister(3)
         truth = StimulusCodedDDM(; ν=2.0, α=1.0, z=0.5, τ=0.25)

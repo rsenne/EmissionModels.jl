@@ -196,9 +196,16 @@ end
 #= `_pack`/`_unpack` map a model's fields to and from the unconstrained vector θ
    the optimizer sees: ν, k, γ, α through exp; z through logistic; τ through a
    logistic scaled into (0, rt_min). =#
-function _pack(d::StimulusCodedDDM{T}, rt_min::T) where {T<:Real}
+function _pack_τ(τ::T, rt_min::T) where {T<:Real}
+    # τ ≥ rt_min would clamp to ~rt_min, where the fastest trial's density underflows
+    # and the NLL is Inf with zero gradient, so start from an interior point.
+    r = τ < rt_min ? τ / rt_min : T(0.5)
     ϵ = sqrt(eps(T))
-    return T[log(d.ν), log(d.α), logit(d.z), logit(clamp(d.τ / rt_min, ϵ, 1 - ϵ))]
+    return logit(clamp(r, ϵ, 1 - ϵ))
+end
+
+function _pack(d::StimulusCodedDDM{T}, rt_min::T) where {T<:Real}
+    return T[log(d.ν), log(d.α), logit(d.z), _pack_τ(d.τ, rt_min)]
 end
 
 function _unpack(::StimulusCodedDDM, θ::AbstractVector{<:Real}, rt_min::Real)
@@ -223,8 +230,7 @@ function _setparams!(d::StimulusCodedDDM, pars)
 end
 
 function _pack(d::CoherenceDDM{T}, rt_min::T) where {T<:Real}
-    ϵ = sqrt(eps(T))
-    return T[log(d.k), log(d.γ), log(d.α), logit(d.z), logit(clamp(d.τ / rt_min, ϵ, 1 - ϵ))]
+    return T[log(d.k), log(d.γ), log(d.α), logit(d.z), _pack_τ(d.τ, rt_min)]
 end
 
 function _unpack(::CoherenceDDM, θ::AbstractVector{<:Real}, rt_min::Real)
@@ -305,8 +311,11 @@ from the current parameters (so repeated EM calls refine, not restart).
 The optimizer is Optim's LBFGS over unconstrained transformed parameters,
 with the gradient supplied by ForwardDiff through the first-passage density.
 The non-decision time is constrained to `(0, rt_min)` where `rt_min` is the
-smallest reaction time with positive weight. If no positive weight is present
-the parameters are left unchanged.
+smallest reaction time with positive weight; if the current τ is not below
+`rt_min`, the optimizer starts from `τ = rt_min / 2`. If no positive weight is
+present the parameters are left unchanged. If the optimizer finds no
+finite-likelihood optimum, a warning is emitted and the parameters are left
+unchanged.
 
 # Arguments
 - `d`: [`StimulusCodedDDM`](@ref) or [`CoherenceDDM`](@ref), updated in place
@@ -362,9 +371,11 @@ function StatsAPI.fit!(
     fg = _DDMFG(nll, ForwardDiff.GradientConfig(nll, θ))
     od = OnceDifferentiable(only_fg!(fg), θ)
     result = optimize(od, θ, LBFGS(), Optim.Options(; iterations=max_iter, g_abstol=gtol))
-    # Keep the current parameters if no finite-likelihood optimum was found.
     if isfinite(Optim.minimum(result))
         _setparams!(d, _unpack(d, Optim.minimizer(result), rt_min))
+    else
+        @warn "DDM fit! found no finite-likelihood optimum; keeping current parameters" maxlog =
+            1
     end
     return d
 end
