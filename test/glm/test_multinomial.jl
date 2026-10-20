@@ -259,6 +259,15 @@ end
         @test_throws DimensionMismatch fit!(glm, bad_obs, ones(4); control_seq=X)
     end
 
+    @testset "fit! zero total weight leaves B unchanged" begin
+        B0 = [0.7 -0.2; -0.4 0.3]
+        glm = MultinomialGLM(copy(B0), 3, RidgePrior(1.0))
+        X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+        obs = [[1, 1, 1], [0, 2, 1], [3, 0, 0], [1, 0, 2]]
+        fit!(glm, obs, zeros(4); control_seq=X)
+        @test glm.B == B0
+    end
+
     @testset "ControlledEmissionHMM: sample, forward, baum_welch" begin
         rng = Random.MersenneTwister(777)
         p, T = 2, 800

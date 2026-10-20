@@ -577,3 +577,31 @@ end
         @test_throws DimensionMismatch fit!(glm, wrong_dim_obs, ones(5); control_seq=X)
     end
 end
+
+@testset "Zero total weight leaves parameters unchanged" begin
+    X = [1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5]
+    w = zeros(4)
+
+    b = BernoulliGLM([0.7, -0.4], RidgePrior(1.0))
+    fit!(b, [0, 1, 1, 0], w; control_seq=X)
+    @test b.β == [0.7, -0.4]
+
+    pg = PoissonGLM([0.7, -0.4], RidgePrior(1.0))
+    fit!(pg, [0, 2, 1, 3], w; control_seq=X)
+    @test pg.β == [0.7, -0.4]
+
+    B0 = [0.7 -0.2; -0.4 0.3]
+    mb = MvBernoulliGLM(copy(B0), RidgePrior(1.0))
+    fit!(mb, [[0, 1], [1, 0], [1, 1], [0, 0]], w; control_seq=X)
+    @test mb.B == B0
+
+    mp = MvPoissonGLM(copy(B0), RidgePrior(1.0))
+    fit!(mp, [[0, 2], [1, 0], [3, 1], [0, 0]], w; control_seq=X)
+    @test mp.B == B0
+
+    # Control: the closed-form Gaussian fit already returns early.
+    g = GaussianGLM([0.7, -0.4], 1.0, RidgePrior(1.0))
+    fit!(g, [0.0, 1.0, 1.0, 0.0], w; control_seq=X)
+    @test g.β == [0.7, -0.4]
+    @test g.σ2 == 1.0
+end
