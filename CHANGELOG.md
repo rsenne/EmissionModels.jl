@@ -20,12 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fastest RT (#116, #69). `logdensityof` for `rt ≤ τ` (and on series
   underflow) now returns `log(1e-16)` instead of `-Inf`; an invalid choice is
   still `-Inf`.
+- `CalciumParams` no longer accepts `nshare`; the share count is taken from
+  `CalciumEmission` construction (#71).
 
 ### Fixed
 
 - Documentation drift after the calcium and ACDC additions: API.md lists the
   calcium exports, ACDC docs describe the hinge-loss selection rule, and
   `MvTDiag` docs call `σ²` the diagonal scale (#95).
+- Tied calcium M-step solved on partial statistics when `nshare` was left at its
+  default, making Baum-Welch non-monotone (#71).
 
 ## [0.1.0] - 2026-08-14
 

@@ -69,8 +69,9 @@ statistics into this object and the `nshare`-th call solves the pooled weighted
 least-squares problem for `α`, `c`, `σ2` and resets the accumulators. This is
 correct under the serial per-state fitting loop `ControlledEmissionHMM` uses; a
 tied set must always be fit as a complete set (as Baum-Welch does), so every
-emission built on a `CalciumParams` must belong to the same HMM. `deepcopy` of
-the emission vector keeps the copies sharing one params object with the same count.
+emission built on a `CalciumParams` must belong to the same HMM. Deepcopy the whole
+emission vector or HMM together; deepcopying a single emission duplicates the params
+object with the full count, and the pooled solve then never fires.
 
 # Identifiability
 `c` and `λ` are identifiable only through the count noise: `c·s` has mean `cλ`

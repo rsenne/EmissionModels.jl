@@ -169,8 +169,10 @@ end
         d = [CalciumEmission([0.5, 0.5], p), CalciumEmission([1.0, 1.0], p)]
         @test p.nshare == 2
         hmm = ControlledEmissionHMM([0.5, 0.5], [0.9 0.1; 0.1 0.9], d)
-        _, lls = baum_welch(hmm, sim.obs_seq, sim.control_seq; seq_ends=[500])
+        hmm_fit, lls = baum_welch(hmm, sim.obs_seq, sim.control_seq; seq_ends=[500])
         @test all(diff(lls) .>= -1e-8)
+        @test hmm_fit.dists[1].params.α != [0.5 0.5]
+        @test hmm_fit.dists[1].params.ncalls == 0
 
         untied = calcium_emissions(
             [0.5 1.0; 1.0 0.5], [0.5 0.5], [1.0, 1.0], [0.1, 0.1]; tied=false
