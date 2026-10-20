@@ -57,7 +57,7 @@ HiddenMarkovModels.jl `ControlledEmission` positional interface.
 | --- | --- |
 | `AbstractPrior` | Abstract supertype for coefficient priors; implement the three `neglogprior*` methods to add one. |
 | `NoPrior` | No regularization (default). |
-| `RidgePrior` | Gaussian (L2) prior on coefficients. |
+| `RidgePrior` | Gaussian (L2) prior on coefficients: `RidgePrior(λ)` is `β ~ N(0, λ⁻¹I)` for every GLM, Gaussian included (changed in 0.2.0). |
 | `neglogprior(p, β)` | Negative log prior density. |
 | `neglogprior_grad!(p, g, β)` | Accumulate gradient in place. |
 | `neglogprior_hess!(p, H, β)` | Accumulate Hessian in place. |
