@@ -15,7 +15,7 @@ and the emission density marginalizes the unobserved count numerically:
 [`CalciumEmission`](@ref) holds one HMM state's per-neuron rates ``\lambda``; the AR coefficients ``\alpha``, spike influx ``c`` and noise variance ``\sigma^2`` live in a shared [`CalciumParams`](@ref), since the paper ties the calcium dynamics across states and lets only the firing rate vary.
 
 ```julia
-params = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05]; nshare=2)
+params = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05])
 dists = [CalciumEmission([0.2, 1.5], params), CalciumEmission([1.8, 0.3], params)]
 hmm = ControlledEmissionHMM([0.5, 0.5], [0.95 0.05; 0.05 0.95], dists)
 ```
@@ -34,7 +34,7 @@ Because the control at time ``t`` is the *observed* fluorescence at ``t-1``, a c
 
 ## Fitting
 
-`fit!` runs one closed-form M-step: the per-state rate `λ` is the posterior expected spike count, and the calcium dynamics (`α`, `c`, `σ2`, `b`) are pooled weighted least squares over the whole tied set of states, solved once every `nshare` calls. There is no inner optimizer.
+`fit!` runs one closed-form M-step: the per-state rate `λ` is the posterior expected spike count, and the calcium dynamics (`α`, `c`, `σ2`, `b`) are pooled weighted least squares over the whole tied set of states, solved once every emission sharing the parameters has been fit (`nshare`, counted as each `CalciumEmission` is built). There is no inner optimizer.
 
 Two flags control what part of the calcium dynamics gets refit:
 

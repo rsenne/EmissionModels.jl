@@ -38,8 +38,8 @@ HMM states — only the firing rates λ are state-dependent — so a set of
 - `fit_c`: whether `fit!` updates `c` (see the identifiability note below)
 - `fit_b`: whether `fit!` updates `b`
 - `gaussian`: use the large-rate Gaussian marginal instead of summing `0:R`
-- `nshare`: number of emissions sharing this object; the pooled M-step fires
-  once every `nshare` calls to `fit!`
+- `nshare`: number of [`CalciumEmission`](@ref)s built on this object, counted
+  by their constructor; the pooled M-step fires once every `nshare` calls to `fit!`
 
 # Baseline
 The paper's model has no intercept: with `s ≥ 0` and `c > 0` the fluorescence
@@ -68,7 +68,9 @@ be expressed per state. Instead each `fit!` call pushes its weighted sufficient
 statistics into this object and the `nshare`-th call solves the pooled weighted
 least-squares problem for `α`, `c`, `σ2` and resets the accumulators. This is
 correct under the serial per-state fitting loop `ControlledEmissionHMM` uses; a
-tied set must always be fit as a complete set (as Baum-Welch does).
+tied set must always be fit as a complete set (as Baum-Welch does), so every
+emission built on a `CalciumParams` must belong to the same HMM. `deepcopy` of
+the emission vector keeps the copies sharing one params object with the same count.
 
 # Identifiability
 `c` and `λ` are identifiable only through the count noise: `c·s` has mean `cλ`
@@ -110,7 +112,6 @@ mutable struct CalciumParams{T<:Real}
         fit_c::Bool,
         fit_b::Bool,
         gaussian::Bool,
-        nshare::Int,
     ) where {T<:Real}
         ord, nn = size(α)
         ord > 0 || throw(ArgumentError("α must have at least one row (AR order ≥ 1)"))
@@ -121,7 +122,6 @@ mutable struct CalciumParams{T<:Real}
         length(b) == nn || throw(DimensionMismatch("b length $(length(b)) ≠ neurons $(nn)"))
         all(>(0), c) || throw(ArgumentError("c must be positive, got $c"))
         all(>(0), σ2) || throw(ArgumentError("σ2 must be positive, got $σ2"))
-        nshare > 0 || throw(ArgumentError("nshare must be positive, got $nshare"))
         d = ord + 2
         return new{T}(
             α,
@@ -131,7 +131,7 @@ mutable struct CalciumParams{T<:Real}
             fit_c,
             fit_b,
             gaussian,
-            nshare,
+            0,
             0,
             zeros(T, d, d, nn),
             zeros(T, d, nn),
@@ -153,12 +153,11 @@ function CalciumParams(
     fit_c::Bool=false,
     fit_b::Bool=false,
     gaussian::Bool=false,
-    nshare=1,
 )
     T = float(promote_type(eltype(α), eltype(c), eltype(σ2)))
     bvec = b === nothing ? zeros(T, (length(c),)) : Vector{T}(b)
     return CalciumParams{T}(
-        Matrix{T}(α), Vector{T}(c), Vector{T}(σ2), bvec, fit_c, fit_b, gaussian, Int(nshare)
+        Matrix{T}(α), Vector{T}(c), Vector{T}(σ2), bvec, fit_c, fit_b, gaussian
     )
 end
 
@@ -194,7 +193,7 @@ lagged fluorescence values laid out as `control[(l-1)*N + n] = y[n, t-l]`, which
 
 # Example
 ```julia
-params = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05]; nshare=2)
+params = CalciumParams([0.9 0.85], [1.0, 1.0], [0.05, 0.05])
 dists = [CalciumEmission([0.2, 1.5], params), CalciumEmission([1.8, 0.3], params)]
 hmm = ControlledEmissionHMM([0.5, 0.5], [0.95 0.05; 0.05 0.95], dists)
 ```
@@ -213,6 +212,7 @@ mutable struct CalciumEmission{T<:Real} <: ControlledEmission
         all(>(0), λ) || throw(ArgumentError("λ must be positive, got $λ"))
         R > 0 || throw(ArgumentError("R must be positive, got $R"))
         params.gaussian || _warn_truncation(λ, R)
+        params.nshare += 1
         return new{T}(λ, params, R, [loggamma(T(s + 1)) for s in 0:R])
     end
 end
@@ -270,9 +270,7 @@ function calcium_emissions(
         DimensionMismatch("λ0 has $(size(λ0, 1)) rows but c has $(length(c)) neurons")
     )
     if tied
-        params = CalciumParams(
-            α, c, σ2; b=b, fit_c=fit_c, fit_b=fit_b, gaussian=gaussian, nshare=K
-        )
+        params = CalciumParams(α, c, σ2; b=b, fit_c=fit_c, fit_b=fit_b, gaussian=gaussian)
         return [CalciumEmission(view(λ0, :, k), params; R=R) for k in 1:K]
     end
     return [
@@ -286,7 +284,6 @@ function calcium_emissions(
                 fit_c=fit_c,
                 fit_b=fit_b,
                 gaussian=gaussian,
-                nshare=1,
             );
             R=R,
         ) for k in 1:K
