@@ -38,7 +38,7 @@ Because the control at time ``t`` is the *observed* fluorescence at ``t-1``, a c
 
 Two flags control what part of the calcium dynamics gets refit:
 
-- `fit_c`: whether the spike influx `c` updates. `c` and `λ` are identifiable only through the count noise (mean `cλ`, variance `c²λ`), which is poorly conditioned when `σ²` is large — leaving `fit_c=false` (the default) and supplying a known indicator amplitude is more stable.
+- `fit_c`: whether the spike influx `c` updates. `c` and `λ` are identifiable only through the count noise (mean `cλ`, variance `c²λ`), which is poorly conditioned when `σ²` is large — leaving `fit_c=false` and supplying a known indicator amplitude is more stable. `fit_c` defaults to `false` for `CalciumParams`/`calcium_emissions` and to `nothing` for `init_calcium`, which fits `c` exactly when it estimated it.
 - `fit_b`: whether the baseline `b` updates. `b` is tied across states while `λ` is not, which is what identifies it, so fitting `b` needs at least two states — with `nstates = 1` it is ill-posed.
 
 ## Padding and the baseline
