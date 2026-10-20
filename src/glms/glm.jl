@@ -885,10 +885,14 @@ function StatsAPI.fit!(
         end
     end
     Σ_new ./= wsum
+    #= Same floor as the univariate σ2: with fewer than p + k effective
+       observations the residuals cannot span ℝᵏ and Σ_new is singular. =#
+    var_floor = _variance_floor(T)
+    for j in 1:k
+        Σ_new[j, j] += var_floor
+    end
 
-    #= Σ_new is Σwᵢ·rᵢrᵢᵀ / Σwᵢ, which is PSD by construction and PD whenever
-       the residuals span ℝᵏ. Failure means a degenerate output dimension
-       (zero variance), so error rather than silently regularize. =#
+    # Last resort: only non-finite or badly scaled residuals can still fail here.
     Σ_chol_new = cholesky(Symmetric(Σ_new, :L); check=false)
     issuccess(Σ_chol_new) || throw(
         ArgumentError(
