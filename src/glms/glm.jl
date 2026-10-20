@@ -337,6 +337,24 @@ end
 @inline _grad_hess_terms(::_PoissonFamily, link, y, ::Type{T}) where {T<:Real} =
     (link - T(y), link)
 
+# Observations outside the support make the objective and gradient inconsistent,
+# so `fit!` rejects them (regardless of weight) with the offending index.
+@inline _valid_obs(::_BernoulliFamily, y) = y == 0 || y == 1
+@inline _valid_obs(::_PoissonFamily, y) = y >= 0 && isinteger(y)
+_support_str(::_BernoulliFamily) = "Bernoulli observations must be 0 or 1"
+_support_str(::_PoissonFamily) = "Poisson observations must be non-negative integers"
+
+@inline function _check_obs(family::_GLMFamily, y, i)
+    _valid_obs(family, y) ||
+        throw(ArgumentError("$(_support_str(family)), got obs_seq[$i] = $y"))
+    return nothing
+end
+@inline function _check_obs(family::_GLMFamily, y, i, j)
+    _valid_obs(family, y) ||
+        throw(ArgumentError("$(_support_str(family)), got obs_seq[$i][$j] = $y"))
+    return nothing
+end
+
 #= Fused exponential-family negative log-posterior in the `fgh!(F, G, H, β)` form
    that `Optim.only_fgh!` expects. `F`, `G`, `H` are `nothing` when Optim doesn't
    need that piece on a given call; each nothing/array combination gets its own
@@ -430,6 +448,9 @@ function _fit_glm_newton!(
     )
     length(β) == p ||
         throw(DimensionMismatch("β length $(length(β)) ≠ control_seq columns $p"))
+    for i in 1:n
+        _check_obs(family, obs_seq[i], i)
+    end
     # Zero total weight: Newton would move β to the prior mode; leave it unchanged.
     sum(weight_seq) > 0 || return β
 
@@ -1043,6 +1064,9 @@ function StatsAPI.fit!(
         length(obs_seq[i]) == k || throw(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
         )
+        for (j, y) in enumerate(obs_seq[i])
+            _check_obs(_BernoulliFamily(), y, i, j)
+        end
     end
 
     sum(weight_seq) > 0 || return glm
@@ -1198,6 +1222,9 @@ function StatsAPI.fit!(
         length(obs_seq[i]) == k || throw(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $k")
         )
+        for (j, y) in enumerate(obs_seq[i])
+            _check_obs(_PoissonFamily(), y, i, j)
+        end
     end
 
     sum(weight_seq) > 0 || return glm
@@ -1549,6 +1576,13 @@ function StatsAPI.fit!(
         length(obs_seq[i]) == K || throw(
             DimensionMismatch("obs_seq[$i] length $(length(obs_seq[i])) ≠ out_dim $K")
         )
+        for (j, y) in enumerate(obs_seq[i])
+            (y >= 0 && isinteger(y)) || throw(
+                ArgumentError(
+                    "Multinomial counts must be non-negative integers, got obs_seq[$i][$j] = $y",
+                ),
+            )
+        end
     end
 
     sum(weight_seq) > 0 || return glm
