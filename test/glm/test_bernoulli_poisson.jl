@@ -69,6 +69,25 @@ end
         neglogprior_hess!(prior, H, β)
         @test H ≈ [2.0 0.0; 0.0 2.0]
     end
+
+    @testset "RidgePrior λ promotion and validation" begin
+        p_int = RidgePrior(1)
+        @test p_int isa RidgePrior{Float64}
+        @test p_int.λ === 1.0
+        @test neglogprior(p_int, [0.1, 0.2]) ≈ 0.5 * 0.05
+
+        g = BernoulliGLM(zeros(2), RidgePrior(1))
+        fit!(g, [0, 1, 1, 0], ones(4); control_seq=[1.0 0.0; 0.0 1.0; 1.0 1.0; 0.5 0.5])
+        @test all(isfinite, g.β)
+
+        b32 = BernoulliGLM(Float32[0.5, -1.0], RidgePrior(0.1))
+        @test neglogprior(b32.prior, b32.β) isa Float32
+        g32 = zeros(Float32, 2)
+        neglogprior_grad!(b32.prior, g32, b32.β)
+        @test g32 ≈ 0.1f0 .* b32.β
+
+        @test_throws ArgumentError RidgePrior(-1.0)
+    end
 end
 
 @testset "BernoulliGLM" begin

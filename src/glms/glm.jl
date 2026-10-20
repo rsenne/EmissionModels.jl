@@ -88,21 +88,36 @@ neglogprior_hess!(::NoPrior, H, β) = nothing
 
 """
     RidgePrior{T<:Real} <: AbstractPrior
+    RidgePrior(λ::Real)
 
 Isotropic Gaussian prior β ~ N(0, (1/λ)I), equivalent to L2 regularization.
 Contributes 0.5 λ ‖β‖² to the negative log-posterior. For multivariate GLMs
 the same prior is applied independently to each column of the coefficient
 matrix `B`, giving a Frobenius-norm penalty 0.5 λ ‖B‖_F².
+
+`λ` must be nonnegative and is stored as `float(λ)`. The penalty terms are
+computed in the element type of the coefficients, so a `Float64` λ does not
+widen a `Float32` objective.
 """
 struct RidgePrior{T<:Real} <: AbstractPrior
     λ::T
+    function RidgePrior{T}(λ::Real) where {T<:Real}
+        λ >= 0 || throw(ArgumentError("RidgePrior requires λ ≥ 0, got λ = $λ"))
+        return new{T}(λ)
+    end
 end
 
-neglogprior(p::RidgePrior, β) = oftype(p.λ, 0.5) * p.λ * dot(β, β)
+RidgePrior(λ::Real) = RidgePrior{typeof(float(λ))}(λ)
+
+function neglogprior(p::RidgePrior, β)
+    T = eltype(β)
+    return T(p.λ) * dot(β, β) / 2
+end
 
 function neglogprior_grad!(p::RidgePrior, g, β)
+    λ = eltype(g)(p.λ)
     for i in eachindex(g, β)
-        g[i] += p.λ * β[i]
+        g[i] += λ * β[i]
     end
 end
 
@@ -110,8 +125,9 @@ end
    Gaussian GLM path can add ridge to XᵀWX without depending on the value or
    length of the `β` argument it passes. =#
 function neglogprior_hess!(p::RidgePrior, H, β)
+    λ = eltype(H)(p.λ)
     for i in axes(H, 1)
-        H[i, i] += p.λ
+        H[i, i] += λ
     end
 end
 
