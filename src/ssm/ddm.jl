@@ -25,20 +25,26 @@ SequentialSamplingModels.jl through a package extension: run
 """
 abstract type AbstractDDMEmission <: ControlledEmission end
 
-# These hooks are overloaded in the SequentialSamplingModels extension.
-@noinline function _require_ssm()
-    throw(
-        ArgumentError(
-            "DDM emission models require SequentialSamplingModels.jl: run " *
-            "`using SequentialSamplingModels` to enable `logdensityof`, " *
-            "`rand`, and `fit!`.",
-        ),
+#= These hooks are overloaded, with `::Real` arguments, in the
+   SequentialSamplingModels extension. Matching signatures here would be method
+   overwriting, which extension precompilation rejects, so they stay untyped. =#
+@noinline function _require_ssm(f, args)
+    ext = Base.get_extension(@__MODULE__, :EmissionModelsSequentialSamplingModelsExt)
+    throw(_ssm_hook_error(f, args, ext !== nothing))
+end
+function _ssm_hook_error(f, args, ext_loaded::Bool)
+    # With the extension loaded, only non-Real arguments can land here.
+    ext_loaded && return MethodError(f, args)
+    return ArgumentError(
+        "DDM emission models require SequentialSamplingModels.jl: run " *
+        "`using SequentialSamplingModels` to enable `logdensityof`, " *
+        "`rand`, and `fit!`.",
     )
 end
-_ddm_logpdf(ν, α, z, τ, choice, rt) = _require_ssm()
-_ddm_rand(rng, ν, α, z, τ) = _require_ssm()
+_ddm_logpdf(ν, α, z, τ, choice, rt) = _require_ssm(_ddm_logpdf, (ν, α, z, τ, choice, rt))
+_ddm_rand(rng, ν, α, z, τ) = _require_ssm(_ddm_rand, (rng, ν, α, z, τ))
 # Defective CDF P(choice, RT ≤ rt), used by ACDC driver recovery.
-_ddm_cdf(ν, α, z, τ, choice, rt) = _require_ssm()
+_ddm_cdf(ν, α, z, τ, choice, rt) = _require_ssm(_ddm_cdf, (ν, α, z, τ, choice, rt))
 
 #= Probability of absorption at the upper boundary (choice = 1), the t → ∞
    limit of the defective CDF. Standard Wiener first-passage result for unit
