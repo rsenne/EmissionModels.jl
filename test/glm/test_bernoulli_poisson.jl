@@ -215,6 +215,19 @@ end
         @test mean(samples) ≈ exp(glm.β[1]) atol = 0.2
     end
 
+    @testset "Random sampling at extreme η (#86)" begin
+        for η in (800.0, -800.0, 800.0f0, -800.0f0)
+            glm = PoissonGLM([η])
+            x = [one(η)]
+            s = rand(MersenneTwister(1), glm; control_seq=x)
+            @test s isa Int
+            @test s >= 0
+            @test !isnan(logdensityof(glm, 3; control_seq=x))
+        end
+        moderate = [rand(rng, PoissonGLM([5.0]); control_seq=[1.0]) for _ in 1:2_000]
+        @test mean(moderate) ≈ exp(5.0) rtol = 0.05
+    end
+
     @testset "fit! uniform weights" begin
         β_true = [1.0, 0.4]
         X, y, w = _synthetic_poisson(rng, 2000, β_true)
@@ -468,6 +481,18 @@ end
         @test all(s -> s >= 0, vec(Y))
         @test mean(Y[:, 1]) ≈ exp(B[1, 1]) atol = 0.2
         @test mean(Y[:, 2]) ≈ exp(B[1, 2]) atol = 0.2
+    end
+
+    @testset "Random sampling at extreme η (#86)" begin
+        glm = MvPoissonGLM(reshape([800.0, -800.0, 5.0], 1, 3))
+        x = [1.0]
+        s = rand(MersenneTwister(1), glm; control_seq=x)
+        @test eltype(s) == Int
+        @test all(>=(0), s)
+        @test s[2] == 0
+        @test !isnan(logdensityof(glm, [3, 0, 100]; control_seq=x))
+        draws = [rand(rng, glm; control_seq=x)[3] for _ in 1:2_000]
+        @test mean(draws) ≈ exp(5.0) rtol = 0.05
     end
 
     @testset "fit! recovers B" begin

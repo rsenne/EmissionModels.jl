@@ -268,6 +268,13 @@ Base.@propagate_inbounds Base.getindex(c::_ColumnElementView, i::Integer) = c.se
    about 707 for Float64, 86 for Float32. =#
 @inline _η_bound(::Type{T}) where {T<:AbstractFloat} = log(floatmax(T)) - T(2)
 
+#= Tighter bound for sampling: Distributions' Poisson sampler rounds to Int, so
+   keep exp(η) ≤ typemax(Int)/2, leaving room for the draw's spread above λ. =#
+@inline _η_bound_rand(::Type{T}) where {T<:AbstractFloat} =
+    min(_η_bound(T), T(log(typemax(Int) / 2)))
+@inline _clamp_η_rand(η::T) where {T<:AbstractFloat} =
+    clamp(η, -_η_bound_rand(T), _η_bound_rand(T))
+
 #= Linear predictor η_j = Σ_r B[r,j]·x[r] for output column `j`, accumulated in
    type `Tη`. Factors out the inner loop repeated across every multivariate /
    multinomial `logdensityof`/`rand`/`rand!`; kept `@inline` so those hot paths
@@ -563,7 +570,7 @@ function DensityInterface.logdensityof(
 end
 
 function Random.rand(rng::AbstractRNG, glm::PoissonGLM; control_seq::AbstractVector{<:Real})
-    return rand(rng, Poisson(exp(dot(glm.β, control_seq))))
+    return rand(rng, Poisson(exp(_clamp_η_rand(float(dot(glm.β, control_seq))))))
 end
 
 """
@@ -1127,7 +1134,7 @@ function Random.rand!(
     T = eltype(glm.B)
     for j in 1:(glm.out_dim)
         η = _eta_col(T, glm.B, control_seq, j, glm.in_dim)
-        out[j] = rand(rng, Poisson(exp(η)))
+        out[j] = rand(rng, Poisson(exp(_clamp_η_rand(η))))
     end
     return out
 end
