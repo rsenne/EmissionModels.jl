@@ -82,8 +82,7 @@ end
 #=
 Underfitted models leave clearly non-uniform drivers, while the three-state
 model passes. [`acdc_select`](@ref) turns these scores into a choice: it
-minimizes the accumulated loss $\sum_k \max(0, \hat{D}_k - \rho)$, breaking
-ties in favor of fewer states (which is how an overfitted but well-calibrated
+minimizes this loss, breaking ties in favor of fewer states (which is how an overfitted but well-calibrated
 four-state model loses to the three-state one).
 =#
 

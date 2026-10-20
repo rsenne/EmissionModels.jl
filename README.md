@@ -128,7 +128,7 @@ end
 K = acdc_select(results, 0.05)
 ```
 
-It works with any `AbstractHMM` whose emissions are standard `Distributions` objects or any emission type in this package except `CalciumEmission` (including the GLMs, via their covariates). Several discrepancy measures are available: `KSDiscrepancy`, `KLDiscrepancy`, `WassersteinDiscrepancy`, `MMDDiscrepancy`, and `SquaredErrorDiscrepancy`.
+It works with any `AbstractHMM` whose emissions are standard `Distributions` objects or any emission type in this package (GLMs via their covariates) except `CalciumEmission`. Several discrepancy measures are available: `KSDiscrepancy`, `KLDiscrepancy`, `WassersteinDiscrepancy`, `MMDDiscrepancy`, and `SquaredErrorDiscrepancy`.
 
 ## Creating custom emission models
 

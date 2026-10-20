@@ -104,16 +104,16 @@ release.
 ### Naming convention
 
 Any name prefixed with an underscore (`_newton_fit!`, `_ddm_logpdf`,
-`_scatter_mstep!`, …) is private by construction and is not enumerated here.
+`_scatter_mstep!`, …) is private by construction and is not enumerated here,
+except `_emission_to_driver`, listed below as the ACDC extension hook.
 Unexported names without an underscore are also private; the notable ones are
 listed below because they appear in tutorials or internal docstrings.
 
 ### ACDC plumbing (unexported, deliberately internal)
 
 These were unexported during the pre-0.1.0 API freeze to keep the selection
-surface minimal (`_emission_to_driver` was never exported). Tutorials qualify
-them as `EmissionModels.stochastic_drivers` etc.; that spelling carries no
-stability guarantee.
+surface minimal. Tutorials qualify them as `EmissionModels.stochastic_drivers`
+etc.; that spelling carries no stability guarantee.
 
 | Name | Role |
 | --- | --- |

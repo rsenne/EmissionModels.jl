@@ -7,10 +7,9 @@ EmissionModels.jl provides ready-to-use emission models for
 *emission model* (or *emission distribution*) describes how observations are
 generated conditioned on the latent state of a hidden Markov model.
 
-The package covers count data, multivariate continuous data, generalized linear
-models (GLMs), drift-diffusion models (DDMs) for choice/response-time data, and
-calcium fluorescence traces, plus ACDC selection of the number of hidden states,
-so you can build HMMs without writing custom emission code from scratch.
+The package covers count data, multivariate continuous data, GLMs,
+drift-diffusion models (DDMs) for choice/response-time data, and calcium
+fluorescence traces. ACDC selects the number of hidden states.
 
 ## Quick start
 
