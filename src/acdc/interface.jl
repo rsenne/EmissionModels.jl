@@ -111,14 +111,22 @@ end
 Compute per-component discrepancies from ``U(0,1)`` for a fitted `model`.
 
 Recovers the stochastic drivers via [`stochastic_drivers`](@ref) and scores each
-component's driver pool with `discrepancy`. The `rng` drives both the driver
-recovery and any Monte Carlo discrepancy estimates; seed it for reproducible
-results. Extra keyword arguments are forwarded to `stochastic_drivers`. The
-second form scores an already-recovered [`StochasticDriverResult`](@ref).
+component's driver pool with `discrepancy`. The `n_samples` posterior sampling
+passes are pooled, so for `n_samples > 1` each pool approximates the
+responsibility-weighted driver distribution of Li et al. (2026, Eq. 15).
+[`KLDiscrepancy`](@ref) and [`MMDDiscrepancy`](@ref) account for the repeated
+drivers this pooling creates by treating exact ties as one weighted atom. So even
+at `n_samples=1` a pool with accidental exact ties (boundary clamping, `Float32`
+rounding) can score differently than in 0.1.0, and mass concentrated at a single
+point is not penalised beyond its weight, since an atom's own mass is excluded.
+The `rng` drives both the driver recovery and any Monte Carlo discrepancy
+estimates; seed it for reproducible results. Extra keyword arguments are
+forwarded to `stochastic_drivers`. The second form scores an already-recovered
+[`StochasticDriverResult`](@ref).
 
-A component whose driver pool has fewer than two samples (it was rarely or never
-assigned a sample, which happens when the model has more components than the
-data supports) scores `Inf`: there is no evidence it is well specified, and the
+A component whose driver pool has fewer than two distinct drivers (it was rarely
+or never assigned a sample, which happens when the model has more components than
+the data supports) scores `Inf`: there is no evidence it is well specified, and the
 discrepancy measures are undefined on such pools. A `NaN` score is also mapped
 to `Inf`.
 """
@@ -130,6 +138,7 @@ function component_discrepancies(
     rng::AbstractRNG=Random.default_rng(),
     kwargs...,
 )
+    n_samples > 0 || throw(ArgumentError("n_samples must be positive"))
     result = stochastic_drivers(model, data; n_samples=n_samples, rng=rng, kwargs...)
     return component_discrepancies(result, discrepancy; rng=rng)
 end
@@ -146,10 +155,10 @@ function component_discrepancies(
     discs = Vector{T}(undef, K)
     for k in 1:K
         pool = result.ε_pools[k]
-        #= Fewer than two samples: the measures divide by zero, return NaN, or
-           throw, so score the component maximally discrepant. NaN would win
-           `acdc_select`'s argmin, so it is mapped to Inf as well. =#
-        discs[k] = if isempty(pool) || size(pool, 2) < 2
+        #= Fewer than two distinct drivers (pooled repeats count once): the
+           measures are undefined or uninformative, so score maximally
+           discrepant. NaN would win `acdc_select`'s argmin, so it maps to Inf. =#
+        discs[k] = if size(pool, 2) < 2 || length(first(_distinct_columns(pool))) < 2
             T(Inf)
         else
             d = T(compute_discrepancy(discrepancy, pool; rng=rng))
@@ -168,6 +177,10 @@ density estimation. Returns 0 for perfectly uniform drivers, positive otherwise.
 
 To avoid boundary bias on the bounded hypercube, samples are mapped to
 ``\\mathbb{R}^D`` with the probit transform and compared against ``\\mathcal{N}(0, I)``.
+Exact ties (as pooled `n_samples > 1` passes produce) are treated as one weighted
+atom: the neighbour search runs over distinct points and each kNN ball's mass is
+the summed multiplicity of its neighbours, excluding the atom's own mass (the bias
+correction is the unweighted-ball form, an approximation when that mass is not `k`).
 
 # Fields
 - `k_neighbors::Int`: number of neighbors for kNN density estimation (default 5).
@@ -246,7 +259,9 @@ empirical distribution and ``U([0,1]^D)``. Detects cross-dimensional dependence.
 For `N > block_size`, averages the unbiased estimate over near-equal blocks of
 at most `block_size` samples each (no tail is dropped) to stay ``O(N)``. The
 result is clamped at 0, since the unbiased U-statistic can dip slightly
-negative.
+negative. Exact ties (as pooled `n_samples > 1` passes produce) are collapsed to
+distinct atoms weighted by multiplicity, with self-pairs excluded; the uniform
+reference sample is sized by the pooled mass.
 
 # Fields
 - `sigma::T`: kernel bandwidth (default 0.5).
@@ -297,8 +312,16 @@ function compute_discrepancy(
     samples_clamped = clamp.(T.(samples), ϵ, one(T) - ϵ)
     samples_normal = quantile.(Normal(zero(T), one(T)), samples_clamped)
 
-    # E[log p_data] via k-NN in R^D.
-    mean_log_p = _mean_log_pdf_knn_multivariate(samples_normal, k)
+    # E[log p_data] via k-NN in R^D; repeated drivers would give zero kNN radii.
+    firsts, counts = _distinct_columns(samples_normal)
+    mean_log_p = if length(firsts) == N
+        _mean_log_pdf_knn_multivariate(samples_normal, k)
+    elseif length(firsts) < k + 1
+        @warn "Too few distinct samples ($(length(firsts))) for k-NN KL estimation (k=$k)"
+        return T(Inf)
+    else
+        _mean_log_pdf_knn_weighted(samples_normal[:, firsts], counts, k)
+    end
 
     # E[log q_ref] for q_ref = N(0, I): log N(x;0,I) = -D/2 log(2π) - ½‖x‖².
     log_2pi = log(T(2) * T(π))
@@ -401,6 +424,9 @@ function compute_discrepancy(
     D, N = size(samples)
     S = T.(samples)
 
+    firsts, counts = _distinct_columns(S)
+    length(firsts) < N && return _mmd_weighted(d, S[:, firsts], counts, rng)
+
     if N <= d.block_size
         reference_uniform = rand(rng, T, D, N)
         return max(zero(T), _compute_mmd_quadratic_unbiased(S, reference_uniform, d.sigma))
@@ -486,6 +512,116 @@ function _mean_log_pdf_knn_multivariate(samples::AbstractMatrix{T}, k::Int) wher
         sum_log_p += bias_correction - log_c_D - D * log(rho_k)
     end
     return sum_log_p / N
+end
+
+#= Kozachenko-Leonenko over distinct atoms with multiplicities `counts`: each
+   kNN ball's mass is its neighbours' summed counts, so it reduces to the plain
+   estimator when all counts are 1 (the reference code instead raises k). =#
+function _mean_log_pdf_knn_weighted(
+    atoms::AbstractMatrix{T}, counts::Vector{Int}, k::Int
+) where {T<:Real}
+    D, U = size(atoms)
+    N = sum(counts)
+
+    tree = KDTree(atoms)
+    idxs, dists = knn(tree, atoms, k + 1, true)
+
+    log_c_D = (T(D) / 2) * log(T(π)) - loggamma(T(D) / 2 + 1)
+    #= Count the U distinct atoms as the independent units: exact for all-1 and
+       all-equal multiplicities. =#
+    bias_correction = digamma(T(k)) - log(T(k)) - digamma(T(U)) + log(T(U)) - log(T(N))
+
+    sum_log_p = zero(T)
+    for i in 1:U
+        mass = 0
+        for j in 2:(k + 1)
+            mass += counts[idxs[i][j]]
+        end
+        rho_k = max(dists[i][k + 1], eps(T))
+        sum_log_p += counts[i] * (bias_correction + log(T(mass)) - log_c_D - D * log(rho_k))
+    end
+    return sum_log_p / N
+end
+
+# First-occurrence indices of the distinct columns of X, and their multiplicities.
+function _distinct_columns(X::AbstractMatrix)
+    seen = Dict{Vector{eltype(X)},Int}()
+    firsts = Int[]
+    counts = Int[]
+    for j in axes(X, 2)
+        col = X[:, j]
+        i = get(seen, col, 0)
+        if i == 0
+            push!(firsts, j)
+            push!(counts, 1)
+            seen[col] = length(firsts)
+        else
+            counts[i] += 1
+        end
+    end
+    return firsts, counts
+end
+
+#= MMD over distinct atoms `A` with multiplicities `counts`, using the same
+   near-equal block partition as the unweighted path. Each block's reference is
+   sized by its pooled mass (capped at `block_size`) and weighted by that mass. =#
+function _mmd_weighted(
+    d::MMDDiscrepancy{T}, A::AbstractMatrix{T}, counts::Vector{Int}, rng::AbstractRNG
+) where {T<:Real}
+    D, U = size(A)
+    n_blocks = max(1, min(cld(U, d.block_size), div(U, 2)))
+    total_mmd = zero(T)
+    for b in 1:n_blocks
+        r = (div((b - 1) * U, n_blocks) + 1):div(b * U, n_blocks)
+        mass = sum(view(counts, r))
+        w = T.(view(counts, r)) ./ mass
+        M = clamp(mass, max(length(r), 2), d.block_size)
+        reference = rand(rng, T, D, M)
+        total_mmd +=
+            mass * _compute_mmd_quadratic_weighted(view(A, :, r), w, reference, d.sigma)
+    end
+    return max(zero(T), total_mmd / sum(counts))
+end
+
+#= MMD² between the discrete measure Σᵢ wᵢ δ(xᵢ) (Σ w = 1) and a reference
+   sample Y. Self-pairs are dropped from the x-x term and the rest renormalised
+   by 1 - Σ wᵢ², which is the U-statistic below when every wᵢ = 1/n. =#
+function _compute_mmd_quadratic_weighted(
+    X::AbstractMatrix{T}, w::AbstractVector{T}, Y::AbstractMatrix{T}, sigma::T
+) where {T<:Real}
+    D, n = size(X)
+    M = size(Y, 2)
+    gamma = one(T) / (T(2) * sigma^2)
+
+    sum_xx = zero(T)
+    for i in 1:n, j in (i + 1):n
+        sum_xx += w[i] * w[j] * exp(-gamma * _sqdist(X, i, X, j))
+    end
+    sum_yy = zero(T)
+    for i in 1:M, j in (i + 1):M
+        sum_yy += exp(-gamma * _sqdist(Y, i, Y, j))
+    end
+    sum_xy = zero(T)
+    for i in 1:n
+        acc = zero(T)
+        for j in 1:M
+            acc += exp(-gamma * _sqdist(X, i, Y, j))
+        end
+        sum_xy += w[i] * acc
+    end
+
+    # A single atom has no off-diagonal pairs; its x-x term is k(x, x) = 1.
+    xx = n == 1 ? one(T) : T(2) * sum_xx / (one(T) - sum(abs2, w))
+    yy = T(2) * sum_yy / (M * (M - 1))
+    return xx + yy - T(2) * sum_xy / M
+end
+
+function _sqdist(X::AbstractMatrix{T}, i::Int, Y::AbstractMatrix{T}, j::Int) where {T<:Real}
+    s = zero(T)
+    for d in axes(X, 1)
+        s += (X[d, i] - Y[d, j])^2
+    end
+    return s
 end
 
 #= Unbiased U-statistic MMD² between D × N matrices X and Y with a Gaussian RBF
